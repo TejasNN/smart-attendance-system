@@ -62,7 +62,7 @@ This project demonstrates skills in **GUI development, computer vision, database
 git clone https://github.com/<your-username>/smart-attendance-system.git
 cd smart-attendance-system
 
-Create a Virtual Environment
+### 2️⃣ Create a Virtual Environment
 
 python -m venv venv
 source venv/bin/activate  # On Linux/Mac
@@ -85,6 +85,7 @@ Run the app
 
 python main.py
 
+---
 
 🌟 Future Enhancements
 
@@ -94,6 +95,7 @@ Add role-based login (Admin/Employee).
 
 Build interactive admin dashboards for analytics.
 
+---
 
 🙌 Challenges & Learnings
 
@@ -105,11 +107,13 @@ Improved face recognition accuracy with encoding optimizations.
 
 Implemented validation checks to avoid duplicate logs.
 
+---
 
 📸 Demo
 
 👉 (You can later add screenshots or a short GIF of the app here.)
 
+---
 
 👨‍💻 Author
 
