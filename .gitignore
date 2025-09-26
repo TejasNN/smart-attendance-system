@@ -1,0 +1,19 @@
+# Byte-compiled  cache
+__pycache__
+.py[cod]
+.pyo
+
+# Virtual environments
+venv
+smart-attend-venv
+
+# OS files
+.DS_Store
+
+# Photos (private data)
+photos
+temp_photos
+tests
+
+# Config with secrets
+config.py
