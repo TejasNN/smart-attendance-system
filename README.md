@@ -62,7 +62,7 @@ smart_attendance/
 
 ### 1️⃣ Clone the Repository
 ```bash
-git clone https://github.com/<your-username>/smart-attendance-system.git
+git clone https://github.com/TejasNN/smart-attendance-system.git
 cd smart-attendance-system
 ```
 
@@ -118,8 +118,9 @@ python main.py
 
 ---
 
-#### 👤 Author
+### 👨🏻‍💻 Author
 
 Developed by @TejasNN (Tejas Nagvekar)
+
 🚀 Passionate about building scalable desktop and web applications with Python.
 
