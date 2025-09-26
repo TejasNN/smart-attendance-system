@@ -1,4 +1,4 @@
-# 🧑‍💼 Smart Attendance System (Face Recognition + PyQt6)
+# Smart Attendance System (Face Recognition + PyQt6)
 
 ## 📌 Overview
 A desktop-based **Smart Attendance System** that automates employee attendance using **face recognition**.  
@@ -31,9 +31,11 @@ This project demonstrates skills in **GUI development, computer vision, database
 ---
 
 ## 📂 Project Structure
+
+```bash
+smart_attendance/
 │   config.example.py
 │   main.py
-│   requirements.txt
 │
 ├───database
 │       mongo_db.py
@@ -52,6 +54,7 @@ This project demonstrates skills in **GUI development, computer vision, database
 │
 └───utils
         utils.py
+```
 
 ---
 
@@ -61,61 +64,62 @@ This project demonstrates skills in **GUI development, computer vision, database
 ```bash
 git clone https://github.com/<your-username>/smart-attendance-system.git
 cd smart-attendance-system
+```
 
 ### 2️⃣ Create a Virtual Environment
-
+```bash
 python -m venv venv
 source venv/bin/activate  # On Linux/Mac
 venv\Scripts\activate     # On Windows
+```
 
-
-Install dependencies
-
+### 3️⃣ Install Dependencies
+```bash
 pip install -r requirements.txt
+```
 
-
-Setup Databases
+### 4️⃣ Setup Databases
 
 PostgreSQL: Create DB & run create_tables() in postgres_db.py.
 
 MongoDB: Ensure service is running (mongod).
 
 
-Run the app
+### 5️⃣ Run the app
 
 python main.py
 
 ---
 
-🌟 Future Enhancements
+## 🌟 Future Enhancements
 
-Export attendance logs as PDF/Excel.
-
-Add role-based login (Admin/Employee).
-
-Build interactive admin dashboards for analytics.
-
----
-
-🙌 Challenges & Learnings
-
-Learned PyQt threading to prevent GUI freezing.
-
-Designed a dual-database architecture.
-
-Improved face recognition accuracy with encoding optimizations.
-
-Implemented validation checks to avoid duplicate logs.
+- 📊 Export logs as Excel/PDF reports
+- 🔑 Add login roles (Admin/User)
+- 🛡️ Strengthen validation & security
+- 📈 Build interactive dashboards for admins
 
 ---
 
-📸 Demo
+## 🙌 Challenges & Learnings
 
-👉 (You can later add screenshots or a short GIF of the app here.)
+- Learned PyQt threading to prevent GUI freezing.
+
+- Designed a dual-database architecture.
+
+- Improved face recognition accuracy with encoding optimizations.
+
+- Implemented validation checks to avoid duplicate logs.
 
 ---
 
-👨‍💻 Author
+## 📸 Demo
 
-Developed by Tejas Nagvekar
+
+
+---
+
+#### 👤 Author
+
+Developed by @TejasNN (Tejas Nagvekar)
+🚀 Passionate about building scalable desktop and web applications with Python.
 
