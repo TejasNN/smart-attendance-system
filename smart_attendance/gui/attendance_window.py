@@ -1,9 +1,16 @@
 import cv2
 import numpy as np
 from datetime import datetime
+
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QPushButton, QMessageBox
+from PyQt6.QtCore import QThreadPool, Qt
+from PyQt6.QtGui import QImage, QPixmap
+ 
+from threads.camera_thread import CameraThread
+from threads.recognition_worker import RecognitionWorker
 from services.face_recognizer import FaceRecongnizer
 from config import FACE_MATCH_TOLERANCE
+from config import FACE_SKIP_INTERVAL
 
 class AttendanceWindow(QWidget):
     def __init__(self, post_db, mongo_db, parent=None):
@@ -11,28 +18,45 @@ class AttendanceWindow(QWidget):
         self.post_db = post_db
         self.mongo_db = mongo_db
         self.face_recognizer = FaceRecongnizer()
-        self.setWindowTitle("Mark Attendance")
-        self.resize(400, 300)
 
+        self.setWindowTitle("Mark Attendance")
+        self.resize(600, 400) 
+
+        # layout
         layout = QVBoxLayout()
 
-        self.label = QLabel("Click the button below to mark your attendance.")
-        self.btn_mark = QPushButton("Mark Attendance")
+        # Video preview label
+        self.video_label = QLabel("Camera feed will appear here")
+        self.video_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.video_label.setStyleSheet("background-color: black; color: white;")
+        layout.addWidget(self.video_label)
 
-        layout.addWidget(self.label)
-        layout.addWidget(self.btn_mark)
+        # Controls
+        self.btn_toggle = QPushButton("Start Attendance")
+        layout.addWidget(self.btn_toggle)
         self.setLayout(layout)
 
-        self.btn_mark.clicked.connect(self.mark_attendance)
+        # Camera + Threadpool
+        self.camera_thread = CameraThread()
+        self.camera_thread.frame_ready.connect(self.update_frame)
+        self.thread_pool = QThreadPool()
+
+        # Button click
+        self.btn_toggle.clicked.connect(self.toggle_session)
 
         # Track marked employees in this session to avoid duplicates
-        self._marked_today = set()
+        self._marked_today = set()  
 
         # Preload encodings once per session
         self.ids, self.encodings, self.meta = self._prepare_known_encodings()
         if len(self.ids) == 0:
             QMessageBox.warning(self, "No employees", "No employee encodings found. Register employees first.")
-            return      
+            return
+
+        # State
+        self._running = False
+        self.frame_count = 0
+
 
     def _prepare_known_encodings(self):
         """
@@ -57,106 +81,92 @@ class AttendanceWindow(QWidget):
                 'name': r['name'], 
                 'department': r['department']
                 }
-            
+        
             encodings = np.stack(encodings_list)    # shape: (num_employees, 128)
         return ids, encodings, meta
-
-
-    def _match_encodings(self, live_encoding, ids, encodings, tolerance=FACE_MATCH_TOLERANCE):
-        """
-        Vectorized match: compute Euclidean distances, find smallest.
-        Returns (employee_id, distance) or (None, None)
-        """
-        if encodings.shape[0] == 0:
-            return None, None
-        
-        # Ensure 1D
-        live_encoding = np.ravel(live_encoding)
-        if live_encoding.shape[0] != 128:
-            print("Warning: live encoding has wrong shape", live_encoding.shape)
-            return None, None
-        
-        # Compute Euclidean distances
-        difference = encodings - live_encoding  # broadcasting
-        distance = np.linalg.norm(difference, axis=1)
-        idx = int(np.argmin(distance))
-
-        # Safety check
-        if idx >= len(ids):
-            print(f"Safety: idx {idx} out of bounds for ids of length {len(ids)}")
-            return None, None
-        
-        best_distance = float(distance[idx])
-        if best_distance <= tolerance:
-            return ids[idx], best_distance
-        return None, None
     
 
-    def mark_attendance(self) -> None:
-        # step 1: Open the camera
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            QMessageBox.critical(self, "Error", "Could not access camera.")
-            return
+    def toggle_session(self):
+        if not self._running:
+            self.start_session()
+        else:
+            self.stop_session()
+
+    def start_session(self):
+        self._running = True
+        self.btn_toggle.setText("Stop Attendance")
+        self.camera_thread.start()
+        print("Attendance session started")
+
+    def stop_session(self):
+        self._running = False
+
+        # Block any further frames
+        try:
+            self.camera_thread.frame_ready.disconnect(self.update_frame)
+        except TypeError:
+            pass  # already disconnected
+
+        # Reset the UI
+        self.video_label.clear()
+        self.video_label.setStyleSheet("background-color: black; color: white;")
+        self.video_label.setText("Camera Stopped")
+        print("Attendance session ended")
+
+        self.btn_toggle.setText("Start Attendance")
+
+        self.camera_thread.stop()
+
+    def update_frame(self, frame: np.ndarray) -> None:
+        self.frame_count += 1
+
+        # Display frame in QLabel
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb_frame.shape
+        bytes_per_line = ch * w
+        qt_img = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+        self.video_label.setPixmap(QPixmap.fromImage(qt_img))
+
+        # Send every nth frame to recognition worker
+        if self.frame_count % FACE_SKIP_INTERVAL == 0:
+            worker = RecognitionWorker(
+                frame.copy(),
+                self.ids,
+                self.encodings,
+                self.meta,
+                FACE_MATCH_TOLERANCE,
+                self.handle_recognition_result,
+                self.face_recognizer
+            )
+            self.thread_pool.start(worker)
         
-        QMessageBox.information(self, "Info", "Attendance session started. Press Esc to stop.")
 
-        frame_count = 0
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                QMessageBox.critical(self, "Error", "Failed to capture image.")
-                break
-            
-            frame_count += 1    # process every 3rd frame
-            if (frame_count % 3) != 0:
-                cv2.imshow("Mark Attendance - Esc to exit", frame)
-                if cv2.waitKey(1) == 27:    # Esc key
-                    break
-                continue
+    def handle_recognition_result(self, employee_id):
+        if employee_id in self._marked_today:
+            print(f"Attendance already marked for {employee_id}. Skipping.")
+            return  # Already marked in this session
 
-            # Extract encodings from frame
-            face_encodings = self.face_recognizer.extract_face_encoding(frame)
-            if face_encodings is None or len(face_encodings) == 0:
-                cv2.imshow("Mark Attendance - Esc to exit", frame)
-                if cv2.waitKey(1) == 27:    # Esc key
-                    break
-                continue
+        employee = self.meta.get(employee_id)
+        if employee:
+            print(f"Employee {employee['name']} found!")
 
-            for enc in face_encodings:
-                enc = np.ravel(enc)
-                employee_id, distance = self._match_encodings(enc, self.ids, self.encodings)
-                if employee_id is None:
-                    print(f"Face detected but no match. Distance: {distance}, Tolerance: {FACE_MATCH_TOLERANCE}")
-                    continue
-                # remove after testing
-                print(f"Employee_id found. Distance: {distance}")
+        if self.mongo_db.check_valid_entry_for_date(employee_id):
+            print(f"Attendance already marked for {employee_id} for today.")
+            return
 
-                if employee_id in self._marked_today:
-                    print(f"Attendance already marked for {employee_id}. Skipping.")
-                    continue
-
-                # Mark attendance    
-                employee = self.meta.get(employee_id)
-                record = {
-                    "employee_id": employee_id,
-                    "name": employee["name"],
-                    "department": employee["department"],
-                    "date": datetime.now().strftime("%Y-%m-%d"),
-                    "status": "Present",
-                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-                try:
-                    self.mongo_db.log_attendance(record)
-                    self._marked_today.add(employee_id)
-                    self.label.setText(f"Attendance marked for {employee['name']}")
-                    break   # Stop after first valid match (avoid multi-person confusion)
-                except Exception as e:
-                        QMessageBox.critical(self, "Error", f"Failed to log attendance: {e}")
-
-            cv2.imshow("Mark Attendance - Esc to exit", frame)
-            if cv2.waitKey(1) == 27:
-                break
-
-        cap.release()
-        cv2.destroyAllWindows()
+        record = {
+            "employee_id": employee_id,
+            "name": employee["name"],
+            "department": employee["department"],
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "status": "Present",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        try:
+            success = self.mongo_db.log_attendance(record)
+            if success:
+                self._marked_today.add(employee_id)
+                self.video_label.setText(f"Attendance marked for {employee['name']}")
+                print(f"Attendance marked for {employee['name']}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error: Failed to log attendance: {e}")
