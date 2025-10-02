@@ -8,22 +8,23 @@ class CameraThread(QThread):
     def __init__(self, parent = None):
         super().__init__(parent)
         self._running = False
+        self._cap = None
 
     def run(self):
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
+        self._cap = cv2.VideoCapture(0)
+        if not self._cap.isOpened():
             print("Error: Could not access camera.")
             return
         self._running = True
 
         while self._running:
-            ret, frame = cap.read()
+            ret, frame = self._cap.read()
             if not ret:
                 break
             self.frame_ready.emit(frame)
             time.sleep(0.03)    # ~30 FPS
 
-        cap.release()
+        self._cap.release()
 
     def stop(self):
         self._running = False

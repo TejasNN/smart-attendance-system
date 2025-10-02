@@ -19,17 +19,21 @@ class RecognitionWorker(QRunnable):
         self.face_recognizer = face_recognizer
 
     def run(self):
-        face_encodings = self.face_recognizer.extract_face_encoding(self.frame)
-        if face_encodings is None or len(face_encodings) == 0:
+        face_encodings, face_locations = self.face_recognizer.extract_face_encoding(self.frame)
+        if not face_encodings or not face_locations:
             return
         
-        for enc in face_encodings:
-            enc = np.ravel(enc)
+        for encoding, location in zip(face_encodings, face_locations):
+            enc = np.ravel(encoding)
             employee_id, distance = self._match_encodings(enc, self.ids, self.encodings, self.tolerance)
+            # scale back loc (since face_recognition runs on 0.25 size frame)
+            top, right, bottom, left = location
+            scale = 4
+            bbox = (left*scale, top*scale, (right-left)*scale, (bottom-top)*scale)
             if employee_id is None:
                 print("Face detected but no match.")
                 continue
-            self.callback(employee_id)
+            self.callback(employee_id, bbox, self.frame)
 
     def _match_encodings(self, live_encoding, ids, encodings, tolerance):
         if encodings.shape[0] == 0:

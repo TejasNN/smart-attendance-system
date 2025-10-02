@@ -1,4 +1,5 @@
 import cv2
+import time
 import numpy as np
 from datetime import datetime
 
@@ -46,6 +47,10 @@ class AttendanceWindow(QWidget):
 
         # Track marked employees in this session to avoid duplicates
         self._marked_today = set()  
+        
+        # Track currently detected faces for persistent rectangle drawing
+        # key: employee_id, value: (bbox, last_seen_timestamp)
+        self.current_faces = {}
 
         # Preload encodings once per session
         self.ids, self.encodings, self.meta = self._prepare_known_encodings()
@@ -120,6 +125,20 @@ class AttendanceWindow(QWidget):
     def update_frame(self, frame: np.ndarray) -> None:
         self.frame_count += 1
 
+        current_time = time.time()
+
+        # Remove faces that haven't been updated recently (e.g., 1 sec)
+        self.current_faces = {emp: (b, t) for emp, (b, t) in self.current_faces.items()
+                              if current_time - t < 1.0}
+        
+        # Draw rectangles for all currently detected faces
+        for emp_id, (bbox, _) in self.current_faces.items():
+            x, y, w, h = bbox
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            name = self.meta.get(emp_id, {}).get("name", "Unknown")
+            cv2.putText(frame, name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+
         # Display frame in QLabel
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb_frame.shape
@@ -141,18 +160,45 @@ class AttendanceWindow(QWidget):
             self.thread_pool.start(worker)
         
 
-    def handle_recognition_result(self, employee_id):
-        if employee_id in self._marked_today:
-            print(f"Attendance already marked for {employee_id}. Skipping.")
-            return  # Already marked in this session
+    def handle_recognition_result(self, employee_id, bbox, frame):
+        # Update current_faces dict with new bbox and timestamp
+        self.current_faces[employee_id] = (bbox, time.time())
 
-        employee = self.meta.get(employee_id)
-        if employee:
-            print(f"Employee {employee['name']} found!")
+        x, y, w, h = bbox
+
+        if frame is None:
+            return
+        
+        # Draw rectangle
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        
+        # Put name
+        name = "Unknown"
+        if employee_id:
+            employee = self.meta.get(employee_id)
+
+            if employee:
+                name = employee.get("name")
+                print(f"Employee {name} found!")
+        else:
+            print("Employee {name}.")
+
+        cv2.putText(frame, name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+        # Now convert and update video_label
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb_frame.shape
+        bytes_per_line = ch * w
+        qt_img = QImage(rgb_frame.data, w, h, bytes_per_line, QImage.Format.Format_RGB888)
+        self.video_label.setPixmap(QPixmap.fromImage(qt_img))
 
         if self.mongo_db.check_valid_entry_for_date(employee_id):
             print(f"Attendance already marked for {employee_id} for today.")
             return
+
+        if employee_id in self._marked_today:
+            print(f"Attendance already marked for {employee_id}. Skipping.")
+            return  # Already marked in this session
 
         record = {
             "employee_id": employee_id,
