@@ -1,4 +1,8 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton, QComboBox
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem, QPushButton, QComboBox,
+    QHeaderView, QAbstractItemView
+)
+from PyQt6.QtCore import Qt
 from datetime import datetime, timedelta
 
 class LogsWindow(QWidget):
@@ -19,8 +23,18 @@ class LogsWindow(QWidget):
         # Table to display logs
         self.table = QTableWidget()
         self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["Employee ID", "Name", "Department","Date", "status", "Timestamp"])
+        self.table.setHorizontalHeaderLabels(["Employee ID", "Name", "Department","Date", "Status", "Timestamp"])
         layout.addWidget(self.table)
+
+        # Static UI styling (apply once)
+        self.table.setAlternatingRowColors(True)
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+
+        # Apply custom header and table styling
+        self.setup_table_style()
 
         # Button to refresh logs
         self.btn_refresh = QPushButton("Refresh Logs")
@@ -31,6 +45,32 @@ class LogsWindow(QWidget):
 
         # Load logs on initialization
         self.load_logs()
+
+    
+    def setup_table_style(self):
+        """Enhances the visual styling of the table and headers."""
+        header = self.table.horizontalHeader()
+        header.setStyleSheet("""
+            QHeaderView::section {
+                background-color: #f0f0f0;
+                color: #000000;
+                font-weight: bold;
+                border-bottom: 1px solid #a0a0a0;
+                padding: 2px;
+            }
+        """)
+
+        self.table.setStyleSheet("""
+            QTableWidget {
+                gridline-color: #d0d0d0;
+                selection-background-color: #dfe6e9;
+                selection-color: #2d3436;
+            }
+            QTableWidget::item {
+                padding: 2px;
+            }
+        """)
+
 
     def load_logs(self):
         filter_option = self.date_filter.currentText()
@@ -61,4 +101,17 @@ class LogsWindow(QWidget):
             self.table.setItem(row, 4, QTableWidgetItem(log.get("status", "")))
             self.table.setItem(row, 5, QTableWidgetItem(log.get("timestamp", "")))
 
-        self.table.resizeColumnsToContents()
+            # dynamic formatting (row-specific)
+            for col in range(6):
+                item = self.table.item(row, col)
+                if item:
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+
+            # Color coding for status
+            status_item = self.table.item(row, 4)
+            if status_item:
+                status_text = status_item.text().lower()
+                if "present" in status_text:
+                    status_item.setForeground(Qt.GlobalColor.darkGreen)
+                else:
+                    status_item.setForeground(Qt.GlobalColor.red)
