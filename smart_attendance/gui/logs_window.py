@@ -1,9 +1,12 @@
+import pandas as pd
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, QPushButton, QComboBox,
-    QLineEdit, QHeaderView, QAbstractItemView
+    QLineEdit, QHeaderView, QAbstractItemView, QMessageBox, QFileDialog
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QIcon
 from datetime import datetime, timedelta
+from utils.utils import get_week_range, get_filename_wrt_date_filter_and_searchbox
 
 class LogsWindow(QWidget):
     def __init__(self, db, parent=None):
@@ -36,6 +39,12 @@ class LogsWindow(QWidget):
         self.btn_reset_filter = QPushButton("Reset filters")
         self.btn_reset_filter.clicked.connect(self.reset_filters)
         top_layout.addWidget(self.btn_reset_filter)
+
+        # Excel export button
+        self.btn_export_excel = QPushButton("Export")
+        self.btn_export_excel.setIcon(QIcon("assets/icons/export-excel.png"))
+        self.btn_export_excel.clicked.connect(self.export_filtered_logs)
+        top_layout.addWidget(self.btn_export_excel)
 
         # Add top_layout into main layout
         main_layout.addLayout(top_layout)
@@ -113,6 +122,7 @@ class LogsWindow(QWidget):
         self.all_logs = list(self.db.collection.find(query).sort("date", -1)) # Sort by the most recent
         self.apply_filters()    # show filtered (or all logs)
 
+
     def apply_filters(self):
         """Apply search-based filtering to logs"""
         search_text = self.search_box.text().lower()
@@ -125,6 +135,7 @@ class LogsWindow(QWidget):
             ]
         self.update_table()
 
+
     def reset_filters(self):
         """Reset search box, date filter, and reload all logs."""
         self.btn_reset_filter.setEnabled(False)
@@ -132,7 +143,8 @@ class LogsWindow(QWidget):
         self.date_filter.setCurrentIndex(0)
         self.load_logs()
         self.btn_reset_filter.setEnabled(True)
-    
+
+
     def add_table_item(self, row, col, text):
         """Helper to create a centered, styled table item."""
         item = QTableWidgetItem(str(text))
@@ -146,6 +158,96 @@ class LogsWindow(QWidget):
                 item.setForeground(Qt.GlobalColor.red)
 
         return item
+
+
+    def export_filtered_logs(self):
+        try:
+            if not self.filtered_logs:
+                QMessageBox.warning(self, "No Data", "There are no records to export.")
+                return
+
+            # Get filename based on date filter selection
+            filter_option = self.date_filter.currentText()
+            searchbox_text = self.search_box.text().lower()
+            
+            filename = get_filename_wrt_date_filter_and_searchbox(
+                filter_option=filter_option, search_text=searchbox_text)
+            
+            # Open file dialog to select save location
+            file_path, _ = QFileDialog.getSaveFileName(
+                self,
+                "Save Filtered logs",
+                f"{filename}.xlsx",
+                "Excel Files (*.xlsx)"
+            )
+
+            if not file_path:
+                return          # user cancelled
+            
+            # Convert logs to Dataframe and remove mongoDB _id
+            df = pd.DataFrame(self.filtered_logs)
+            if "_id" in df.columns:
+                df = df.drop(columns=["_id"])
+
+            # Ensure headers match the table headers in the ui
+            headers = ["Employee ID", "Name", "Department", "Date", "Status", "Timestamp"]
+            df = df.reindex(columns=["employee_id", "name", "department", "date", "status", "timestamp"])
+            df.columns = headers
+
+            # Export to Excel without index
+            df.to_excel(file_path, index=False)
+
+            # Excel styling
+            from openpyxl import load_workbook
+            from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
+            wb = load_workbook(file_path)
+            ws = wb.active
+            ws.title = filename
+
+            # Bold + center align header row
+            for cell in ws[1]:
+                cell.font = Font(bold=True)
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+            # Center align all data cells and apply color coding to status cell
+            status_col_idx = headers.index("Status") + 1    # 1-based index
+
+            # define the border style once before the loop
+            thin_border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            for row in ws.iter_rows(min_row=2):
+                for cell in row:
+                    cell.alignment = Alignment(horizontal='center', vertical='center')
+                    cell.border = thin_border
+
+                    # if this cell is in the status column
+                    if cell.column == status_col_idx:
+                        status_text = str(cell.value).lower().strip()
+                        if "present" in status_text:
+                            cell.fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")    # light green
+                        elif "absent" in status_text:
+                            cell.fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")    # light red
+
+            # Auto-adjust column width
+            for column_cells in ws.columns:
+                max_length = max(len(str(cell.value)) if cell.value else 0 for cell in column_cells)
+                adjusted_width = max_length + 2
+                ws.column_dimensions[column_cells[0].column_letter].width = adjusted_width
+
+            # Save changes
+            wb.save(file_path)
+
+            QMessageBox.information(self, "Success", f"Logs exported successfully:\n{file_path}")
+
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to export logs:\n{str(e)}")
+
 
     def update_table(self):
         """Update QTableWidget with current filtered logs."""
