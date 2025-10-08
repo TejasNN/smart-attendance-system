@@ -136,12 +136,26 @@ class LogsWindow(QWidget):
         self.update_table()
 
 
-    def reset_filters(self):
-        """Reset search box, date filter, and reload all logs."""
+    def reset_filters(self) -> None:
+        """Reset search box, date filter, header sorting, and reload all logs."""
         self.btn_reset_filter.setEnabled(False)
+
+        # Clear search and date filters
         self.search_box.clear()
         self.date_filter.setCurrentIndex(0)
+
+        # Reset all column header sorts
+        header = self.table.horizontalHeader()
+        self.table.setSortingEnabled(False)
+        header.setSortIndicatorShown(False)
+        header.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+
+        # Reload all logs
         self.load_logs()
+        
+        self.table.setSortingEnabled(True)  # Re-enable sorting
+        header.setSortIndicatorShown(True)
+
         self.btn_reset_filter.setEnabled(True)
 
 
