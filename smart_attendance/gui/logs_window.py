@@ -205,10 +205,19 @@ class LogsWindow(QWidget):
             ws = wb.active
             ws.title = filename
 
+            # define the border style for headers
+            thick_border = Border(
+                left=Side(style='thick'),
+                right=Side(style='thick'),
+                top=Side(style='thick'),
+                bottom=Side(style='thick')
+            )
+
             # Bold + center align header row
             for cell in ws[1]:
                 cell.font = Font(bold=True)
                 cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = thick_border
 
             # Center align all data cells and apply color coding to status cell
             status_col_idx = headers.index("Status") + 1    # 1-based index
