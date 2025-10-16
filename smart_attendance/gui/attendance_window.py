@@ -38,9 +38,10 @@ class AttendanceWindow(QWidget):
         layout.addWidget(self.btn_toggle)
         self.setLayout(layout)
 
-        # Camera + Threadpool
-        self.camera_thread = CameraThread()
-        self.camera_thread.frame_ready.connect(self.update_frame)
+        # Camera thread will be created when starting session (so we can recreate it each time)
+        self.camera_thread = None
+
+        # Thread pool for recognition workers
         self.thread_pool = QThreadPool()
 
         # Button click
@@ -92,7 +93,7 @@ class AttendanceWindow(QWidget):
                 'department': r['department']
                 }
         
-            encodings = np.stack(encodings_list)    # shape: (num_employees, 128)
+        encodings = np.stack(encodings_list) if encodings_list else np.empty((0, 128))   # shape: (num_employees, 128)
         return ids, encodings, meta
     
 
@@ -104,20 +105,44 @@ class AttendanceWindow(QWidget):
 
 
     def start_session(self):
+        # create a fresh CameraThread each time we start
+        if self.camera_thread is not None:
+            # if an old thread reference exits, ensure it's stopped/cleaned
+            try:
+                self.camera_thread.stop()
+            except Exception:
+                pass
+        
+        self.camera_thread = CameraThread()
+        # Connect signal (always connect the new thread's signal)
+        self.camera_thread.frame_ready.connect(self.update_frame)
+
+        # Start thread
+        self.camera_thread.start()
         self._running = True
         self.btn_toggle.setText("Stop Attendance")
-        self.camera_thread.start()
         print("Attendance session started")
 
 
     def stop_session(self):
+        # Flip running flag
         self._running = False
 
-        # Block any further frames
-        try:
-            self.camera_thread.frame_ready.disconnect(self.update_frame)
-        except TypeError:
-            pass  # already disconnected
+        # Disconnect frame handler (safe disconnect)
+        if self.camera_thread is not None:
+            try:
+                self.camera_thread.frame_ready.disconnect(self.update_frame)
+            except Exception:
+                pass  # already disconnected
+
+            # Stop the thread and wait for it to finish
+            try:
+                self.camera_thread.stop()
+            except Exception as e:
+                print("Error stopping camera thread: ", e)
+
+            # Drop reference so a new one will be created next start
+            self.camera_thread = None
 
         # Reset the UI
         self.video_label.clear()
@@ -126,8 +151,6 @@ class AttendanceWindow(QWidget):
         print("Attendance session ended")
 
         self.btn_toggle.setText("Start Attendance")
-
-        self.camera_thread.stop()
     
 
     def on_worker_error(self, error_message):
@@ -136,6 +159,10 @@ class AttendanceWindow(QWidget):
 
 
     def update_frame(self, frame: np.ndarray) -> None:
+        # If session was stopped between frames, ignore
+        if not self._running:
+            return
+        
         self.frame_count += 1
 
         current_time = time.time()
