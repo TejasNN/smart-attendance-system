@@ -1,14 +1,15 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QGridLayout, QComboBox, QDateEdit, QSizePolicy, QStackedWidget, 
-    QGraphicsDropShadowEffect
+    QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QMessageBox
 )
 from PyQt6.QtCharts import QChart, QChartView, QPieSeries, QBarSeries, QBarSet, QBarCategoryAxis
 from PyQt6.QtCore import (
     Qt, QDate, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, 
-    QSize, QParallelAnimationGroup
+    QSize, QParallelAnimationGroup , QRect
 )
-from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter
+from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter, QMovie
+from collections import deque
 import datetime
 
 class DashboardUI(QWidget):
@@ -22,6 +23,7 @@ class DashboardUI(QWidget):
         self.sidebar_expanded = True
         self._build_ui()
         self._start_clock()
+        self._pending_summary = None
 
     def _build_ui(self):
         outer = QHBoxLayout(self)
@@ -205,6 +207,56 @@ class DashboardUI(QWidget):
         self.content_stack.addWidget(dashboard_page)
 
         right_container.addWidget(self.content_stack)
+
+        # --- loader overlay (hidden by default) ---
+        # a simple frameless widget that sits on top of central frame inside content stack
+        # --- loader overlay (enhanced, hidden by default) ---
+        self._loader_overlay = QFrame(self.central_frame)
+        self._loader_overlay.setVisible(False)
+        self._loader_overlay.setStyleSheet("background-color: rgba(0, 0, 0, 180); border-radius: 12px;")
+
+        loader_layout = QVBoxLayout(self._loader_overlay)
+        loader_layout.setContentsMargins(24, 24, 24, 24)
+        loader_layout.setSpacing(16)
+        loader_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Loader spinner (centered)
+        self._loader_spinner = QLabel()
+        spinner_path = "assets/icons/loader.gif"
+        try:
+            self._loader_movie = QMovie(spinner_path)
+            self._loader_spinner.setMovie(self._loader_movie)
+        except Exception:
+            self._loader_spinner.setText("Loading...")
+
+        self._loader_spinner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Message label (below spinner)
+        self._loader_message = QLabel("Working...")
+        self._loader_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loader_message.setWordWrap(True)
+        self._loader_message.setStyleSheet("""
+            color: white;
+            font-size: 16px;
+            font-weight: 500;
+            padding: 8px 16px;
+        """)
+        self._loader_message.setMinimumWidth(350)
+        self._loader_message.setMaximumWidth(500)
+
+        self._loader_message_effect = QGraphicsOpacityEffect()
+        self._loader_message.setGraphicsEffect(self._loader_message_effect)
+        self._loader_message_effect.setOpacity(1.0)
+
+        self._loader_message_queue = deque()
+        self._loader_message_timer = QTimer()
+        self._loader_message_timer.timeout.connect(self._show_next_loader_message)
+        self._loader_message_timer.setSingleShot(True)
+        self._current_loader_animating = False
+
+        # Add to layout
+        loader_layout.addWidget(self._loader_spinner)
+        loader_layout.addWidget(self._loader_message)
 
         # Add sidebar and right_container to outer layout with proper stretch ratio
         outer.addWidget(self.sidebar_frame, 0)
@@ -555,3 +607,220 @@ class DashboardUI(QWidget):
             painter.end()
             return QIcon(tinted)
         return QIcon(path)
+    
+    
+    # ------- Loader overlay controls helper functions --------
+    def show_loader(self, initial_message="Working..."):
+        # ensure overlay covers central_frame's content area
+        parent_rect = self.central_frame.rect()
+        self._loader_overlay.setGeometry(0,0, parent_rect.width(), parent_rect.height())
+        self._loader_message.setText(initial_message)
+        if hasattr(self, "_loader_movie") and self._loader_movie:
+            try:
+                self._loader_movie.start()
+            except Exception:
+                pass
+        
+        self._loader_overlay.setGraphicsEffect(None)
+        self._loader_overlay.raise_()
+        self._loader_overlay.setWindowOpacity(0)
+        self._loader_overlay.setVisible(True)
+
+        # Fade-in animation
+        self._fade_in = QPropertyAnimation(self._loader_overlay, b"windowOpacity")
+        self._fade_in.setDuration(500)
+        self._fade_in.setStartValue(0)
+        self._fade_in.setEndValue(1)
+        self._fade_in.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._fade_in.start()
+
+
+    def update_loader(self, message: str):
+        self._loader_message_queue.append(message)
+        if not self._current_loader_animating:
+            self._show_next_loader_message()
+
+
+    def _show_next_loader_message(self):
+        if not self._loader_message_queue:
+            self._current_loader_animating = False
+
+            # --- Smooth fade-out for the final loader overlay ---
+            fade_out_final = QPropertyAnimation(self._loader_overlay, b"windowOpacity")
+            fade_out_final.setDuration(1500)
+            fade_out_final.setStartValue(1)
+            fade_out_final.setEndValue(0)
+            fade_out_final.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+            def on_final_fade_done():
+                self._loader_overlay.setVisible(False)
+                # After fade, if there is a pending summary, show it slighly softly
+                if getattr(self, "_pending_summary", None):
+                    QTimer.singleShot(400, self._show_absentee_summary)
+
+            fade_out_final.finished.connect(on_final_fade_done)
+            fade_out_final.start()
+
+            # Prevent garbage collection
+            self._fade_out_final = fade_out_final
+            return
+
+        self._current_loader_animating = True
+        next_message = self._loader_message_queue.popleft()
+
+        if not hasattr(self, "_loader_message_effect"):
+            # fallback to simple update if effect missing
+            self._loader_message.setText(next_message)
+            self._loader_message.repaint()
+        else:
+            # Step 1: Fade out current text
+            fade_out = QPropertyAnimation(self._loader_message_effect, b"opacity")
+            fade_out.setDuration(250)
+            fade_out.setStartValue(1)
+            fade_out.setEndValue(0)
+            fade_out.setEasingCurve(QEasingCurve.Type.InOutQuad)
+
+            # When fade-out finished, change the text and fade in
+            def on_fade_out_finished():
+                self._loader_message.setText(next_message)
+                fade_in = QPropertyAnimation(self._loader_message_effect, b"opacity")
+                fade_in.setDuration(250)
+                fade_in.setStartValue(0)
+                fade_in.setEndValue(1)
+                fade_in.setEasingCurve(QEasingCurve.Type.InOutQuad)
+                fade_in.start()
+
+                # Prevent garbage collection
+                self._fade_in_message = fade_in
+
+            fade_out.finished.connect(on_fade_out_finished)
+            fade_out.start()
+
+            # Prevent garbage collection
+            self._fade_out_message = fade_out
+
+        # ---- Dynamic delay logic
+        # Slightly longer delay for the final message
+        delay = 1000 if len(self._loader_message_queue) == 0 else 600
+        self._loader_message_timer.start(delay)
+
+
+    def hide_loader(self):
+        if hasattr(self, "_loader_movie") and self._loader_movie:
+            self._loader_movie.stop()
+
+        # Fade-out animation
+        self._fade_out = QPropertyAnimation(self._loader_overlay, b"windowOpacity")
+        self._fade_out.setDuration(600)
+        self._fade_out.setStartValue(1)
+        self._fade_out.setEndValue(0)
+        self._fade_out.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._fade_out.finished.connect(lambda: self._loader_overlay.setVisible(False))
+        self._fade_out.start()
+
+
+    def _show_absentee_summary(self):
+        """Displays summary after all loader messages are done."""
+        summary = self._pending_summary
+        self._pending_summary = None
+
+        self.hide_loader()
+
+        msg = (f"Absentee Marking Complete!\n\n"
+           f"Total Employees: {summary.get('total', 0)}\n"
+           f"Present: {summary.get('present', 0)}\n"
+           f"Absent to Mark: {summary.get('absent_to_mark', 0)}\n"
+           f"Inserted: {summary.get('inserted', 0)}\n"
+           f"Skipped: {summary.get('skipped', 0)}")
+        
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle("Absentee Marking Summary")
+        box.setText(msg)
+        box.setStyleSheet("""
+            QLabel {
+                color: #222;
+                font-size: 14px;
+            }
+            QPushButton {
+                color: #222;
+            }
+            QPushButton:hover {
+                background-color: #f0f0f0;
+            }
+        """)
+
+        # --- Fade in animation effect ---
+        opacity_effect = QGraphicsOpacityEffect(box)
+        box.setGraphicsEffect(opacity_effect)
+        opacity_effect.setOpacity(0)
+
+        fade_in = QPropertyAnimation(opacity_effect, b"opacity")
+        fade_in.setDuration(600)
+        fade_in.setStartValue(0)
+        fade_in.setEndValue(1)
+        fade_in.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        fade_in.start()
+
+        box.exec()
+
+        self.btn_absentees.setEnabled(True)
+
+    
+    def animate_page_transition(self, old_index, new_index, direction="left"):
+        """
+        Animate smooth slide transition between two pages in the content stack.
+        direction: 'left' (default) or 'right'
+        """
+        old_widget = self.content_stack.widget(old_index)
+        new_widget = self.content_stack.widget(new_index)
+
+        if not old_widget or not new_widget:
+            # fallback to normal change if invalid
+            self.content_stack.setCurrentIndex(new_index)
+            return
+        
+        stack_geometry = self.content_stack.geometry()
+        width = stack_geometry.width()
+        height = stack_geometry.height()
+
+        # Starting position for animation
+        if direction == "left":
+            new_start = QRect(width, 0, width, height)
+            new_end = QRect(0, 0, width, height)
+            old_end = QRect(-width, 0, width, height)
+        else:
+            new_start = QRect(-width, 0, width, height)
+            new_end = QRect(0, 0, width, height)
+            old_end = QRect(width, 0, width, height)
+
+        # Prepare new widget
+        new_widget.setGeometry(new_start)
+        new_widget.show()
+
+        # Animation for old and new pages
+        anim_old = QPropertyAnimation(old_widget, b"geometry")
+        anim_old.setDuration(400)
+        anim_old.setStartValue(stack_geometry)
+        anim_old.setEndValue(old_end)
+        anim_old.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        anim_new = QPropertyAnimation(new_widget, b"geometry")
+        anim_new.setDuration(400)
+        anim_new.setStartValue(new_start)
+        anim_new.setEndValue(new_end)
+        anim_new.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        # Group animations together
+        group = QParallelAnimationGroup()
+        group.addAnimation(anim_old)
+        group.addAnimation(anim_new)
+
+        def on_finished():
+            self.content_stack.setCurrentIndex(new_index)
+            new_widget.setGeometry(0, 0, width, height)
+            old_widget.setGeometry
+
+        group.finished.connect(on_finished)
+        group.start()
+        self._page_transition_anim = group

@@ -1,6 +1,6 @@
 import os
 import calendar
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone, time
 from PyQt6.QtGui import QGuiApplication
 from PyQt6.QtWidgets import QWidget
 
@@ -47,3 +47,13 @@ def get_filename_wrt_date_filter_and_searchbox(filter_option, search_text):
         safe_text = "_".join(search_text.strip().split())
         filename = f"{safe_text}_{filename}"
     return filename
+
+def current_datetime_utc() -> datetime:
+    """Return current utc datetime (timezone-aware)."""
+    return datetime.now(timezone.utc)
+
+def current_date_utc_midnight() -> datetime:
+    """Return UTC date at midnight (00:00:00)."""
+    now_utc = current_datetime_utc()
+    midnight_utc = datetime.combine(now_utc.date(), time(0, 0, 0, tzinfo=timezone.utc))
+    return midnight_utc
