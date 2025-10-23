@@ -17,3 +17,6 @@ tests
 
 # Config with secrets
 config.py
+
+# .bat file
+run_auto_absentee.bat
