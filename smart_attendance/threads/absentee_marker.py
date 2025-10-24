@@ -62,6 +62,7 @@ class AbsenteeWorker(QRunnable):
                 record = AttendanceRecord(
                     employee_id=str(emp["employee_id"]),
                     name=emp.get("name"),
+                    department=emp.get("department"),
                     status="absent",
                     marked_by=self.marked_by
                 )

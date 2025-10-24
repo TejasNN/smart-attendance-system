@@ -17,6 +17,8 @@ from PyQt6.QtGui import QImage, QPixmap, QFont, QColor
 from threads.camera_thread import CameraThread
 from threads.recognition_worker import RecognitionWorker
 from services.face_recognizer import FaceRecongnizer
+from services.attendance_record import AttendanceRecord
+
 from config import FACE_MATCH_TOLERANCE
 from config import FACE_SKIP_INTERVAL
 
@@ -286,16 +288,15 @@ class AttendanceWindow(QWidget):
             if not employee:
                 print(f"Unknown employee id {employee_id}")
 
-            record = {
-                "employee_id": employee_id,
-                "name": employee["name"],
-                "department": employee["department"],
-                "date": datetime.now().strftime("%Y-%m-%d"),
-                "status": "Present",
-                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
+            record = AttendanceRecord(
+                employee_id=employee_id,
+                name=employee["name"],
+                department=employee["department"],
+                status="Present",
+                marked_by="System"
+            )
             try:
-                success = self.mongo_db.log_attendance(record)
+                success = self.mongo_db.log_attendance(record.to_dict())
                 if success:
                     self._marked_today.add(employee_id)
                     self.show_feedback(f"Attendance marked for {employee['name']}", "success")

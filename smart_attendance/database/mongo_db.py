@@ -11,9 +11,9 @@ class MongoDB:
 
         # Add indexes for date and employee_id
         # Compound unique index to prevent duplocate employee/day entries
-        self.collection.create_index([("employee_id", ASCENDING), ("date", ASCENDING)], unique=True)
-        self.collection.create_index("date")
-        self.collection.create_index("employee_id")
+        self.collection.create_index([("employee.id", ASCENDING), ("attendance.date", ASCENDING)], unique=True)
+        self.collection.create_index("attendance.date")
+        self.collection.create_index("employee.id")
         
 
     def log_attendance(self, record: dict):
@@ -46,8 +46,8 @@ class MongoDB:
             raise TypeError("date_obj must be None, str, or datetime")
 
         exists = self.collection.find_one({
-            "employee_id": employee_id,
-            "date": today_utc
+            "employee.id": employee_id,
+            "attendance.date": today_utc
         })
         return bool(exists)
     
@@ -60,10 +60,10 @@ class MongoDB:
         today_utc = current_date_utc_midnight()
 
         present_docs = self.collection.find(
-            {"date": today_utc, "status": "present"},
-            {"employee_id": 1, "_id": 0}
+            {"attendance.date": today_utc, "attendance.status": "present"},
+            {"employee.id": 1, "_id": 0}
         )
-        return [str(doc["employee_id"]) for doc in present_docs]
+        return [str(doc["employee"]["id"]) for doc in present_docs]
     
     
     def insert_absentees_bulk(self, records: list[dict]) -> dict:
