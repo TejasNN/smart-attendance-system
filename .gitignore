@@ -20,3 +20,8 @@ config.py
 
 # .bat file
 run_auto_absentee.bat
+
+# logs folder and .log files
+logs
+
+.log
