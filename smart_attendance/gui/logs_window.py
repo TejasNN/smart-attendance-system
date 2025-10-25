@@ -6,7 +6,10 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
 from datetime import datetime, timedelta
-from utils.utils import get_week_range, get_filename_wrt_date_filter_and_searchbox
+from utils.utils import ( 
+    get_week_range, get_filename_wrt_date_filter_and_searchbox, current_date_utc_midnight,
+    get_ist_time_from_utc, get_ist_date_from_utc
+)
 
 class LogsWindow(QWidget):
     def __init__(self, db, parent=None):
@@ -51,8 +54,8 @@ class LogsWindow(QWidget):
 
         # Table to display logs
         self.table = QTableWidget()
-        self.table.setColumnCount(6)
-        self.table.setHorizontalHeaderLabels(["Employee ID", "Name", "Department","Date", "Status", "Timestamp"])
+        self.table.setColumnCount(8)
+        self.table.setHorizontalHeaderLabels(["Employee ID", "Name", "Department","Date", "Status", "Timestamp", "Remarks", "Marked By"])
 
         # Static UI styling (apply once)
         self.table.setAlternatingRowColors(True)
@@ -104,28 +107,44 @@ class LogsWindow(QWidget):
 
     def load_logs(self):
         filter_option = self.date_filter.currentText()
-        today = datetime.today()
+        today_utc = current_date_utc_midnight()
 
         if filter_option == "Today":
-            start_date = today.replace(hour=0, minute=0, second=0, microsecond=0)
+            start_date = today_utc
+            end_date = start_date + timedelta(days=1)
+
         elif filter_option == "This Week":
-            start_date = today - timedelta(days=today.weekday()) # Monday of this week
+            start_date = today_utc - timedelta(days=today_utc.weekday())
+            end_date = start_date + timedelta(days=7)
+
         elif filter_option == "This Month":
-            start_date = today.replace(day=1)
+            start_date = today_utc.replace(day=1)
+            if start_date.month == 12:
+                end_date = start_date.replace(year=start_date.year + 1, month=1)
+            else:
+                end_date = start_date.replace(month=start_date.month + 1, day=1)                  
         else:
-            start_date = None
+            start_date = end_date = None
 
+        # Build mongodb query
         query = {}
-        if start_date:
-            query["date"] = {"$gte": start_date.strftime("%Y-%m-%d")}
+        if start_date and end_date:
+            query["attendance.date"] = {"$gte": start_date, "$lt": end_date}
 
-        self.all_logs = list(self.db.collection.find(query).sort("date", -1)) # Sort by the most recent
-        self.apply_filters()    # show filtered (or all logs)
+        # Fetch logs
+        raw_logs = list(self.db.collection.find(query).sort("attendance.date", -1)) # Sort by the most recent
+
+        # Flatten and convert times to IST
+        self.all_logs = [self.flatten_log(log) for log in raw_logs]
+
+        # Apply search filters
+        self.apply_filters()    
 
 
     def apply_filters(self):
         """Apply search-based filtering to logs"""
-        search_text = self.search_box.text().lower()
+        search_text = self.search_box.text().lower().strip()
+
         if not search_text:
             self.filtered_logs = self.all_logs
         else:
@@ -204,8 +223,8 @@ class LogsWindow(QWidget):
                 df = df.drop(columns=["_id"])
 
             # Ensure headers match the table headers in the ui
-            headers = ["Employee ID", "Name", "Department", "Date", "Status", "Timestamp"]
-            df = df.reindex(columns=["employee_id", "name", "department", "date", "status", "timestamp"])
+            headers = ["Employee ID", "Name", "Department", "Date", "Status", "Timestamp", "Remarks", "Marked By"]
+            df = df.reindex(columns=["employee_id", "name", "department", "date", "status", "timestamp", "remarks", "marked_by"])
             df.columns = headers
 
             # Export to Excel without index
@@ -282,10 +301,38 @@ class LogsWindow(QWidget):
         for row, log in enumerate(self.filtered_logs):
             self.table.setItem(row, 0, self.add_table_item(row, 0, log.get("employee_id", "")))
             self.table.setItem(row, 1, self.add_table_item(row, 1, log.get("name", "")))
-            self.table.setItem(row, 2, self.add_table_item(row, 2,log.get("department", "")))
-            self.table.setItem(row, 3, self.add_table_item(row, 3,log.get("date", "")))
-            self.table.setItem(row, 4, self.add_table_item(row, 4,log.get("status", "")))
-            self.table.setItem(row, 5, self.add_table_item(row, 5,log.get("timestamp", "")))
+            self.table.setItem(row, 2, self.add_table_item(row, 2, log.get("department", "")))
+            self.table.setItem(row, 3, self.add_table_item(row, 3, log.get("date", "")))
+            self.table.setItem(row, 4, self.add_table_item(row, 4, log.get("status", "")))
+            self.table.setItem(row, 5, self.add_table_item(row, 5, log.get("timestamp", "")))
+            self.table.setItem(row, 6, self.add_table_item(row, 6, log.get("remarks", "")))
+            self.table.setItem(row, 7, self.add_table_item(row, 7, log.get("marked_by", "")))
 
         self.table.setSortingEnabled(True) # Re-enable sorting after population
+
+
+    def flatten_log(self, log: dict) -> dict:
+        """Flatten nested MongoDB log document for display/export."""
+        employee = log.get("employee", {})
+        attendance = log.get("attendance", {})
+        timestamp = log.get("timestamp", "")
+
+        flattened =  {
+            "employee_id": employee.get("id", ""),
+            "name": employee.get("name", ""),
+            "department": employee.get("department", ""),
+            "date": attendance.get("date", ""),
+            "status": attendance.get("status", ""),
+            "remarks": attendance.get("remarks", ""),
+            "marked_by": attendance.get("marked_by", ""),
+            "timestamp": timestamp
+        }  
+
+        # Convert UTC -> IST for display
+        if isinstance(flattened["timestamp"], datetime):
+            flattened["timestamp"] = get_ist_time_from_utc(flattened["timestamp"])
+        if isinstance(flattened["date"], datetime):
+            flattened["date"] = get_ist_date_from_utc(flattened["date"])
+
+        return flattened
    
