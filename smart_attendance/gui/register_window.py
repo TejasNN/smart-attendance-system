@@ -2,11 +2,14 @@
 import os
 import cv2
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox, QMessageBox
+from PyQt6.QtCore import pyqtSignal
 from utils.utils import center_window, reset_fields
 from services.photo_storage import PhotoStorage
 from services.face_recognizer import FaceRecongnizer
 
 class RegisterWindow(QWidget):
+    registration_successful = pyqtSignal()
+    
     def __init__(self, db, parent=None):
         super().__init__(parent)
         self.db = db
@@ -68,12 +71,12 @@ class RegisterWindow(QWidget):
                 self.photo_path = self.photo_storage.save_temp_photo(frame)
 
                 # Extract face encoding
-                face_encoding = self.face_recognizer.extract_face_encoding(frame)
-                if face_encoding is None:
+                face_encoding, _ = self.face_recognizer.extract_face_encoding(frame)
+                if not face_encoding:
                     QMessageBox.warning(self, "Warning", "No face detected. Please try again.")
                     self.photo_path = None
                 else:
-                    self.face_encoding = face_encoding
+                    self.face_encoding = face_encoding[0]
                     QMessageBox.information(self, "Info", f"Photo captured successfully")
                 break
 
@@ -90,7 +93,7 @@ class RegisterWindow(QWidget):
             return
         
         # Step 1: Save employee in DB (without photo)
-        emp_id = self.db.add_employee(name, department, self.face_encoding)
+        emp_id = self.db.add_employee(name, department, self.face_encoding.tolist())
 
         # Step 2: Move photo to permanant location
         final_photo_path = self.photo_storage.move_to_employee_folder(emp_id, self.photo_path)
@@ -99,7 +102,10 @@ class RegisterWindow(QWidget):
         self.db.update_photo_path(emp_id, final_photo_path)
         QMessageBox.information(self, "Saved", f"Employee registered with ID: {emp_id}")
         
-        self.close()
+        # Step 5: Reset all fields
         reset_fields(self)
+
+        # Step 6: Send registration complete signal
+        self.registration_successful.emit()
 
 # The above code defines a RegisterWindow class for registering employees with photo capture functionality.

@@ -44,6 +44,9 @@ class MainWindow(QMainWindow):
         self.dashboard_ui.content_stack.addWidget(self.logs_page)
         self.page_logs_idx = self.dashboard_ui.content_stack.indexOf(self.logs_page)
 
+        # Connect signal: when registration is succeeds, refresh attendance encodings
+        self.register_page.registration_successful.connect(self.on_registration_success)
+
         # threadpool for background tasks
         self.thread_pool = QThreadPool.globalInstance()
 
@@ -189,3 +192,13 @@ class MainWindow(QMainWindow):
 
         # Start worker
         self.thread_pool.start(worker)
+
+    def on_registration_success(self):
+        """Called when a new employee is registered successfully."""
+        # Return to dashboard page after successfully registration
+        self.dashboard_ui.content_stack.setCurrentIndex(0)
+        self.dashboard_ui.highlight_active_button(self.dashboard_ui.btn_dashboard)
+
+        # Refresh attendance encodings
+        if hasattr(self.attendance_page, "refresh_known_encodings"):
+            self.attendance_page.refresh_known_encodings()

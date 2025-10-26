@@ -123,12 +123,33 @@ class AttendanceWindow(QWidget):
         meta = {}
 
         for r in rows:
+            raw_encoding = r.get('face_encoding')
+            # Skip if no encoding is present
+            if not raw_encoding:
+                continue
+
+            # Handle double nested lists like [[128 floats]]
+            # or cases where encoding was saved as ndarray
+            if isinstance(raw_encoding, np.ndarray):
+                raw_encoding = raw_encoding.tolist()
+            if isinstance(raw_encoding[0], list):
+                raw_encoding = raw_encoding[0]
+
+            # Convert to 1D numpy array (should always be 128 floats)    
             # Ensure each face_encoding is a numpy array of shape(128,)
-            enc = np.array(r['face_encoding']).ravel()
+            try:
+                enc = np.array(raw_encoding, dtype=np.float32).ravel()
+                if enc.shape[0] != 128:
+                    print(f"[WARN] Invalid encoding length for {r.get('name')}")
+                    continue
+            except Exception as e:
+                print(f"[ERROR] Failed to parse encoding for {r.get('name')}: {e}")
+                continue
+
             encodings_list.append(enc)
-            ids.append(r['employee_id'])
-            meta[r['employee_id']] = {
-                'employee_id': r['employee_id'], 
+            ids.append(r.get('employee_id'))
+            meta[r.get('employee_id')] = {
+                'employee_id': r.get('employee_id'), 
                 'name': r['name'], 
                 'department': r['department']
                 }
@@ -419,3 +440,9 @@ class AttendanceWindow(QWidget):
             self.feedback_label.move(max(0, fx), 20)
         except Exception:
             pass
+
+    # Refresh known encodings after successful employee registration
+    def refresh_known_encodings(self):
+        """Reload all face encodings from Postgres to include any new registration."""
+        self.known_ids, self.known_encodings, self.meta = self._prepare_known_encodings()
+        print(f"[INFO] Known encodings refreshed: {len(self.known_ids)} employees loaded.")
