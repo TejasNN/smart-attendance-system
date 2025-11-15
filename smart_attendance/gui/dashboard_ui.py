@@ -1,23 +1,19 @@
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QGridLayout, QComboBox, QDateEdit, QSizePolicy, QStackedWidget, 
-    QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QMessageBox
+    QSizePolicy, QStackedWidget
 )
-from PyQt6.QtCharts import QChart, QChartView, QPieSeries, QBarSeries, QBarSet, QBarCategoryAxis
 from PyQt6.QtCore import (
-    Qt, QDate, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, 
+    Qt, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, 
     QSize, QParallelAnimationGroup , QRect
 )
-from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter, QMovie
-from collections import deque
+from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter
 import datetime
 
 class DashboardUI(QWidget):
     date_filter_changed = pyqtSignal(str, object, object)
 
-    def __init__(self, logged_user = "Admin", parent=None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self.logged_user = logged_user
         self.sidebar_anim = None
         self.sidebar_anim2 = None
         self.sidebar_expanded = True
@@ -75,18 +71,12 @@ class DashboardUI(QWidget):
             btn.setStyleSheet("text-align: left; padding-left: 10px;")
             return btn
         
-        self.btn_dashboard = make_sidebar_buttons("  Dashboard", "assets/icons/dashboard")
-        self.btn_register = make_sidebar_buttons("  Register", "assets/icons/register")
         self.btn_attendance = make_sidebar_buttons("  Mark Attendance", "assets/icons/attendance")
         self.btn_logs = make_sidebar_buttons("  View Logs", "assets/icons/logs")
-        self.btn_absentees = make_sidebar_buttons("  Mark Absentees", "assets/icons/absentees")
 
-        for btn in (
-            self.btn_dashboard, 
-            self.btn_register, 
+        for btn in ( 
             self.btn_attendance, 
-            self.btn_logs, 
-            self.btn_absentees,
+            self.btn_logs
         ):
             btn.setMinimumHeight(40)
             btn.setStyleSheet("text-align: left; padding-left: 10px;")
@@ -104,15 +94,13 @@ class DashboardUI(QWidget):
         topbar.setObjectName("topbar")
         top_layout = QHBoxLayout(topbar)
         top_layout.setContentsMargins(14, 8, 14, 8)
-        title = QLabel("Attendance Dashboard")
+        title = QLabel("Attendance")
         title.setFont(QFont("Arial", 14, QFont.Weight.Bold))
         top_layout.addWidget(title)
         top_layout.addStretch()
         self.datetime_label = QLabel()
         # self.datetime_label = QLabel(datetime.datetime.now().strftime("%A, %d %B %Y  %H:%M:%S"))
         top_layout.addWidget(self.datetime_label)
-        user_label = QLabel(f"|     Logged in: {self.logged_user}")
-        top_layout.addWidget(user_label)
         right_container.addWidget(topbar)
 
         # Central rounded content area (this will be a QStackedWidget so we can swap content later)
@@ -122,81 +110,7 @@ class DashboardUI(QWidget):
         central_layout.setContentsMargins(16,16,16,16)
         central_layout.setSpacing(12)
 
-        # Filter row (date filter + custom datepickers)
-        filter_row = QHBoxLayout()
-        filter_row.setSpacing(8)
-        filter_row.addWidget(QLabel("Date Range:"))
-        self.filter_combo = QComboBox()
-        self.filter_combo.addItems(["Today", "This Week", "This Month", "This Year", "Custom"])
-        self.filter_combo.currentTextChanged.connect(self._on_filter_change)
-        filter_row.addWidget(self.filter_combo)
-
-        self.from_date = QDateEdit()
-        self.from_date.setCalendarPopup(True)
-        self.from_date.setDate(QDate.currentDate())
-        self.to_date = QDateEdit()
-        self.to_date.setCalendarPopup(True)
-        self.to_date.setDate(QDate.currentDate())
-        # hide custom pickers by default
-        self.from_date.setVisible(False)
-        self.to_date.setVisible(False)
-        filter_row.addWidget(self.from_date)
-        filter_row.addWidget(self.to_date)
-
-        apply_btn = QPushButton("Apply")
-        apply_btn.setObjectName("applyBtn")
-        apply_btn.setFixedHeight(34)
-        apply_btn.clicked.connect(self._emit_filter_change)
-        filter_row.addWidget(apply_btn)
-        filter_row.addStretch()
-
-        central_layout.addLayout(filter_row)
-
-
-        # Metrics grid: 3 cols x 2 rows (six metrics)
-        metrics_grid = QGridLayout()
-        metrics_grid.setSpacing(16)
-
-        # create metric cards and store references to value QLabel for updates
-        self.metric_labels = {}
-        metric_names = [
-            "Total Employees", "Present", "Absent",
-            "Attendance Rate", "Today Late", "Avg Check-in Time"
-        ]
-        positions = [(0,0),(0,1),(0,2),(1,0),(1,1),(1,2)]
-        for name, pos in zip(metric_names, positions):
-            w = self._metric_card(name, "0")
-            w.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-            metrics_grid.addWidget(w, pos[0], pos[1])
-        central_layout.addLayout(metrics_grid)
-
-        # Charts area (pie + bar horizontally)
-        charts_row = QHBoxLayout()
-        charts_row.setSpacing(12)
-
-        # Pie chart
-        self.pie_series = QPieSeries()
-        self.pie_chart = QChart()
-        self.pie_chart.addSeries(self.pie_series)
-        self.pie_chart.legend().setAlignment(Qt.AlignmentFlag.AlignBottom)
-        self.pie_view = QChartView(self.pie_chart)
-        self.pie_view.setMinimumHeight(260)
-        charts_row.addWidget(self.pie_view, 1)
-
-        # # Bar chart
-        self.bar_chart = QChart()
-        self.bar_series = QBarSeries()
-        self.bar_chart.addSeries(self.bar_series)
-        self.bar_view = QChartView(self.bar_chart)
-        self.bar_view.setMinimumHeight(260)
-        charts_row.addWidget(self.bar_view, 2)
-
-        self.pie_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        self.bar_view.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-
-        central_layout.addLayout(charts_row)
-
-        # Make the central content a stacked widget so other windows (register/attendance/logs) can be inserted here
+        # Make the central content a stacked widget so other windows (attendance/logs) can be inserted here
         self.content_stack = QStackedWidget()
         self.content_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         # page 0 = dashboard central_frame (we'll add central_frame into the stack)
@@ -207,56 +121,6 @@ class DashboardUI(QWidget):
         self.content_stack.addWidget(dashboard_page)
 
         right_container.addWidget(self.content_stack)
-
-        # --- loader overlay (hidden by default) ---
-        # a simple frameless widget that sits on top of central frame inside content stack
-        # --- loader overlay (enhanced, hidden by default) ---
-        self._loader_overlay = QFrame(self.central_frame)
-        self._loader_overlay.setVisible(False)
-        self._loader_overlay.setStyleSheet("background-color: rgba(0, 0, 0, 180); border-radius: 12px;")
-
-        loader_layout = QVBoxLayout(self._loader_overlay)
-        loader_layout.setContentsMargins(24, 24, 24, 24)
-        loader_layout.setSpacing(16)
-        loader_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # Loader spinner (centered)
-        self._loader_spinner = QLabel()
-        spinner_path = "assets/icons/loader.gif"
-        try:
-            self._loader_movie = QMovie(spinner_path)
-            self._loader_spinner.setMovie(self._loader_movie)
-        except Exception:
-            self._loader_spinner.setText("Loading...")
-
-        self._loader_spinner.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        # Message label (below spinner)
-        self._loader_message = QLabel("Working...")
-        self._loader_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._loader_message.setWordWrap(True)
-        self._loader_message.setStyleSheet("""
-            color: white;
-            font-size: 16px;
-            font-weight: 500;
-            padding: 8px 16px;
-        """)
-        self._loader_message.setMinimumWidth(350)
-        self._loader_message.setMaximumWidth(500)
-
-        self._loader_message_effect = QGraphicsOpacityEffect()
-        self._loader_message.setGraphicsEffect(self._loader_message_effect)
-        self._loader_message_effect.setOpacity(1.0)
-
-        self._loader_message_queue = deque()
-        self._loader_message_timer = QTimer()
-        self._loader_message_timer.timeout.connect(self._show_next_loader_message)
-        self._loader_message_timer.setSingleShot(True)
-        self._current_loader_animating = False
-
-        # Add to layout
-        loader_layout.addWidget(self._loader_spinner)
-        loader_layout.addWidget(self._loader_message)
 
         # Add sidebar and right_container to outer layout with proper stretch ratio
         outer.addWidget(self.sidebar_frame, 0)
@@ -375,25 +239,6 @@ class DashboardUI(QWidget):
             selection-background-color: #2563eb;
             selection-color: #ffffff;
         }
-
-        /* Metric Cards */
-        QFrame#metricCard {
-            background-color: #f9fafb;
-            border-radius: 14px;
-            border: 1px solid #e5e7eb;
-        }
-
-        /* Apply Button */
-        QPushButton#applyBtn {
-            background-color: #2563eb;
-            color: #ffffff;
-            border-radius: 8px;
-            padding: 6px 12px;
-        }
-
-        QPushButton#applyBtn:hover {
-            background-color: #1d4ed8;
-        }
                            
         #centralFrame QMessageBox,
         #contentStack QMessageBox  {
@@ -415,34 +260,6 @@ class DashboardUI(QWidget):
 
     def _update_clock(self):
         self.datetime_label.setText(datetime.datetime.now().strftime("%A, %d %B %Y  %H:%M:%S"))    
-
-
-    # ---------------- metric card factory ----------------
-    def _metric_card(self, title, value):
-        box = QFrame()
-        # NO internal borders; single entity: title and value stacked with spacing
-        # box.setStyleSheet("""
-        #     QFrame { background-color: #f6f8fa; border-radius: 10px; padding: 12px; }
-        #     QLabel { color: #0f1720; }
-        # """)
-        box.setObjectName("metricCard")
-        shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(15)
-        shadow.setOffset(0,4)
-        box.setGraphicsEffect(shadow)
-        metric_card = QVBoxLayout(box)
-        metric_card.setSpacing(8)
-        label_title = QLabel(title)
-        label_title.setFont(QFont("Arial", 10))
-        label_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        label_value = QLabel(value)
-        label_value.setFont(QFont("Arial", 18, QFont.Weight.Bold))
-        label_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        metric_card.addWidget(label_title)
-        metric_card.addWidget(label_value)
-        # store reference for updates
-        self.metric_labels[title] = label_value
-        return box
     
     # ---------------- Sidebar animation ----------------
     def toggle_sidebar(self):
@@ -487,11 +304,8 @@ class DashboardUI(QWidget):
         """Update sidebar button labels and icon alignment based on collapse state."""
         # Sidebar buttons
         sidebar_buttons = (
-            self.btn_dashboard,
-            self.btn_register,
             self.btn_attendance,
-            self.btn_logs,
-            self.btn_absentees,
+            self.btn_logs
         )
 
         if not self.sidebar_expanded:
@@ -508,7 +322,7 @@ class DashboardUI(QWidget):
                 """)
         else:
             # Expanded: restore text and left alignment
-            texts = ["  Dashboard", "  Register", "  Mark Attendance", "  View Logs", "  Mark Absentees"]
+            texts = ["  Mark Attendance", "  View Logs"]
             for btn, text in zip(sidebar_buttons, texts):
                 btn.setText(text)
                 btn.setStyleSheet("""
@@ -519,73 +333,10 @@ class DashboardUI(QWidget):
                         margin: 0px;
                     }
                 """)
-    
-
-    # ---------------- filter handling ----------------
-    def _on_filter_change(self, text):
-        is_custom = (text == "Custom")
-        self.from_date.setVisible(is_custom)
-        self.to_date.setVisible(is_custom)
-
-
-    def _emit_filter_change(self):
-        text = self.filter_combo.currentText()
-        from_py = None
-        to_py = None
-        if text == "Custom":
-            fd = self.from_date.date()
-            td = self.to_date.date()
-            from_py = datetime.date(fd.year(), fd.month(), fd.day())
-            to_py = datetime.date(td.year(), td.month(), td.day())
-        self.date_filter_changed.emit(text, from_py, to_py)
-
-
-    # ---------------- Helpers to update UI from MainWindow ----------------
-    def update_metrics(self, metrics_dict):
-        """
-        metrics_dict: mapping of metric title -> string value
-        Example: {"Total Employees": "120", "Present": "100", ...}
-        """
-        for k, v in metrics_dict.items():
-            lbl = self.metric_labels.get(k)
-            if lbl:
-                lbl.setText(str(v))
-
-
-    def update_pie(self, present, absent):
-        try:
-            self.pie_series.clear()
-            self.pie_series.append("Present", present)
-            self.pie_series.append("Absent", absent)
-            self.pie_chart.setTitle("Present vs Absent")
-        except Exception as e:
-            print("pie update error:", e)
-
-
-    def update_bar(self, categories, values):
-        try:
-            # rebuild bar series
-            self.bar_chart.removeAllSeries()
-            set0 = QBarSet("Present")
-            set0.append(values)
-            series = QBarSeries()
-            series.append(set0)
-            self.bar_chart.addSeries(series)
-
-            axisX = QBarCategoryAxis()
-            axisX.append(categories)
-            # remove existing axes, attach new
-            for ax in self.bar_chart.axes():
-                self.bar_chart.removeAxis(ax)
-            self.bar_chart.addAxis(axisX, Qt.AlignmentFlag.AlignBottom)
-            series.attachAxis(axisX)
-            self.bar_chart.setTitle("Daily Present Counts")
-        except Exception as e:
-            print("bar update error:", e)
 
 
     def highlight_active_button(self, active_button):
-        for btn in [self.btn_dashboard, self.btn_register, self.btn_attendance, self.btn_logs, self.btn_absentees]:
+        for btn in [self.btn_attendance, self.btn_logs]:
             btn.setProperty("active", False)
             btn.style().unpolish(btn)
             btn.style().polish(btn)
@@ -607,164 +358,6 @@ class DashboardUI(QWidget):
             painter.end()
             return QIcon(tinted)
         return QIcon(path)
-    
-    
-    # ------- Loader overlay controls helper functions --------
-    def show_loader(self, initial_message="Working..."):
-        # ensure overlay covers central_frame's content area
-        parent_rect = self.central_frame.rect()
-        self._loader_overlay.setGeometry(0,0, parent_rect.width(), parent_rect.height())
-        self._loader_message.setText(initial_message)
-        if hasattr(self, "_loader_movie") and self._loader_movie:
-            try:
-                self._loader_movie.start()
-            except Exception:
-                pass
-        
-        self._loader_overlay.setGraphicsEffect(None)
-        self._loader_overlay.raise_()
-        self._loader_overlay.setWindowOpacity(0)
-        self._loader_overlay.setVisible(True)
-
-        # Fade-in animation
-        self._fade_in = QPropertyAnimation(self._loader_overlay, b"windowOpacity")
-        self._fade_in.setDuration(500)
-        self._fade_in.setStartValue(0)
-        self._fade_in.setEndValue(1)
-        self._fade_in.setEasingCurve(QEasingCurve.Type.InOutCubic)
-        self._fade_in.start()
-
-
-    def update_loader(self, message: str):
-        self._loader_message_queue.append(message)
-        if not self._current_loader_animating:
-            self._show_next_loader_message()
-
-
-    def _show_next_loader_message(self):
-        if not self._loader_message_queue:
-            self._current_loader_animating = False
-
-            # --- Smooth fade-out for the final loader overlay ---
-            fade_out_final = QPropertyAnimation(self._loader_overlay, b"windowOpacity")
-            fade_out_final.setDuration(1500)
-            fade_out_final.setStartValue(1)
-            fade_out_final.setEndValue(0)
-            fade_out_final.setEasingCurve(QEasingCurve.Type.InOutCubic)
-
-            def on_final_fade_done():
-                self._loader_overlay.setVisible(False)
-                # After fade, if there is a pending summary, show it slighly softly
-                if getattr(self, "_pending_summary", None):
-                    QTimer.singleShot(400, self._show_absentee_summary)
-
-            fade_out_final.finished.connect(on_final_fade_done)
-            fade_out_final.start()
-
-            # Prevent garbage collection
-            self._fade_out_final = fade_out_final
-            return
-
-        self._current_loader_animating = True
-        next_message = self._loader_message_queue.popleft()
-
-        if not hasattr(self, "_loader_message_effect"):
-            # fallback to simple update if effect missing
-            self._loader_message.setText(next_message)
-            self._loader_message.repaint()
-        else:
-            # Step 1: Fade out current text
-            fade_out = QPropertyAnimation(self._loader_message_effect, b"opacity")
-            fade_out.setDuration(250)
-            fade_out.setStartValue(1)
-            fade_out.setEndValue(0)
-            fade_out.setEasingCurve(QEasingCurve.Type.InOutQuad)
-
-            # When fade-out finished, change the text and fade in
-            def on_fade_out_finished():
-                self._loader_message.setText(next_message)
-                fade_in = QPropertyAnimation(self._loader_message_effect, b"opacity")
-                fade_in.setDuration(250)
-                fade_in.setStartValue(0)
-                fade_in.setEndValue(1)
-                fade_in.setEasingCurve(QEasingCurve.Type.InOutQuad)
-                fade_in.start()
-
-                # Prevent garbage collection
-                self._fade_in_message = fade_in
-
-            fade_out.finished.connect(on_fade_out_finished)
-            fade_out.start()
-
-            # Prevent garbage collection
-            self._fade_out_message = fade_out
-
-        # ---- Dynamic delay logic
-        # Slightly longer delay for the final message
-        delay = 1000 if len(self._loader_message_queue) == 0 else 600
-        self._loader_message_timer.start(delay)
-
-
-    def hide_loader(self):
-        if hasattr(self, "_loader_movie") and self._loader_movie:
-            self._loader_movie.stop()
-
-        # Fade-out animation
-        self._fade_out = QPropertyAnimation(self._loader_overlay, b"windowOpacity")
-        self._fade_out.setDuration(600)
-        self._fade_out.setStartValue(1)
-        self._fade_out.setEndValue(0)
-        self._fade_out.setEasingCurve(QEasingCurve.Type.InOutCubic)
-        self._fade_out.finished.connect(lambda: self._loader_overlay.setVisible(False))
-        self._fade_out.start()
-
-
-    def _show_absentee_summary(self):
-        """Displays summary after all loader messages are done."""
-        summary = self._pending_summary
-        self._pending_summary = None
-
-        self.hide_loader()
-
-        msg = (f"Absentee Marking Complete!\n\n"
-           f"Total Employees: {summary.get('total', 0)}\n"
-           f"Present: {summary.get('present', 0)}\n"
-           f"Absent to Mark: {summary.get('absent_to_mark', 0)}\n"
-           f"Inserted: {summary.get('inserted', 0)}\n"
-           f"Skipped: {summary.get('skipped', 0)}")
-        
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Information)
-        box.setWindowTitle("Absentee Marking Summary")
-        box.setText(msg)
-        box.setStyleSheet("""
-            QLabel {
-                color: #222;
-                font-size: 14px;
-            }
-            QPushButton {
-                color: #222;
-            }
-            QPushButton:hover {
-                background-color: #f0f0f0;
-            }
-        """)
-
-        # --- Fade in animation effect ---
-        opacity_effect = QGraphicsOpacityEffect(box)
-        box.setGraphicsEffect(opacity_effect)
-        opacity_effect.setOpacity(0)
-
-        fade_in = QPropertyAnimation(opacity_effect, b"opacity")
-        fade_in.setDuration(600)
-        fade_in.setStartValue(0)
-        fade_in.setEndValue(1)
-        fade_in.setEasingCurve(QEasingCurve.Type.InOutQuad)
-        fade_in.start()
-
-        box.exec()
-
-        self.btn_absentees.setEnabled(True)
 
     
     def animate_page_transition(self, old_index, new_index, direction="left"):

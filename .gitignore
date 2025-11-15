@@ -25,3 +25,6 @@ run_auto_absentee.bat
 logs
 
 .log
+
+# archive folder
+archive
