@@ -13,7 +13,6 @@ smart-attend-venv
 # Photos (private data)
 photos
 temp_photos
-tests
 
 # Config with secrets
 config.py

@@ -51,13 +51,19 @@ class PostgresDB:
         """
         self.cursor.execute(query, (device_uuid, device_name, assigned_site, app_version, os_version, registered_by))
         row = self.cursor.fetchone()
-        self.cursor.commit()
+        self.conn.commit()
         return row['device_id'] if row else None
     
     
     def get_device_by_uuid(self, device_uuid: str) -> Optional[Dict]:
         query = "SELECT * FROM devices WHERE device_uuid = %s;"
         self.cursor.execute(query, (device_uuid,))
+        return self.cursor.fetchone()
+    
+
+    def get_device_by_id(self, device_id: int) -> Optional[Dict]:
+        query = "SELECT * FROM devices WHERE device_id = %s;"
+        self.cursor.execute(query, (device_id,))
         return self.cursor.fetchone()
     
     
