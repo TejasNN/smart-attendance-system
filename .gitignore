@@ -27,3 +27,9 @@ logs
 
 # archive folder
 archive
+
+# .env file
+.env
+
+# seed user file
+seed_users.py
