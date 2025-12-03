@@ -3,7 +3,8 @@ from pymongo import MongoClient, ASCENDING
 from datetime import datetime, timezone, time
 from desktop_app.utils.utils import current_date_utc_midnight, current_datetime_utc
 from desktop_app.config import MONGO_CONFIG
-from typing import Optional
+from backend.fastapi_app.schemas.provisioning import DeviceLogDTO
+from typing import Optional, List, Dict, Any
 
 class MongoDB:
     def __init__(self):
@@ -110,23 +111,31 @@ class MongoDB:
     # ----------------------------
 
     def log_device_event(self, device_id:int, device_uuid: str, user_id:int, event_type: str, details: dict) -> bool:
-        doc = {
-            "device": {
-                "id": device_id,
-                "uuid": device_uuid
-            },
-            "user_id": user_id,
-            "event_type": event_type,
-            "details": details,
-            "timestamp": current_datetime_utc()
-        }
-        self.device_logs.insert_one(doc)
+        dto = DeviceLogDTO(
+            device_id=device_id,
+            device_uuid=device_uuid,
+            user_id=user_id,
+            event_type=event_type,
+            details=details,
+            timestamp= current_datetime_utc()
+        )
+        self.device_logs.insert_one(dto.to_mongo())
         return True
     
 
-    def get_device_logs(self, device_id: int, limit: int= 100):
-        cursor = self.device_logs.find({"device_id": device_id}).sort("timestamp", -1).limit(limit)
-        return list(cursor)
+    def get_device_logs(self, device_id: int, limit: int= 100) -> List[Dict[str, Any]]:
+        """
+        Fetches recent device logs for a device, sorted by timestamp (desc),
+        and removes MongoDB internal fields like `_id` before returning.
+        """
+        cursor = self.device_logs.find({"device.id": device_id}).sort("timestamp", -1).limit(limit)
+        logs = []
+
+        for doc in cursor:
+            doc = self.sanitize_mongo_doc(doc)
+            logs.append(doc)
+            
+        return logs
     
 
     def log_user_login(self, user_id: int, username: str, device_id: Optional[int], 
@@ -151,3 +160,9 @@ class MongoDB:
     def get_user_login_logs(self, user_id: int, limit: int=100):
         cursor = self.user_login_logs.find({"user.id": user_id}).sort("timestamp", -1).limit(limit)
         return list(cursor)
+    
+
+    def sanitize_mongo_doc(doc):
+        if "_id" in doc:
+            del doc["_id"]
+        return doc

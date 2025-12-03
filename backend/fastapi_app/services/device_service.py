@@ -94,8 +94,7 @@ class DeviceService:
             user_id=approver_employee_id, 
             event_type="approved", 
             details= {
-                "approved_by": approver_employee_id,
-                "timestamp": current_datetime_utc()
+                "approved_by": approver_employee_id
             }
         )
         return True
@@ -172,10 +171,10 @@ class DeviceService:
 
     def validate_device_token(self, device_uuid: str, token: str) -> bool:
         dev = self.repo.get_by_uuid(device_uuid)
-        if not dev or not dev.get("credentail_hash"):
+        if not dev or not dev.get("credential_hash"):
             return False
         
-        stored_hash = dev.get("credentail_hash")
+        stored_hash = dev.get("credential_hash")
         ok = verify_token_bcrypt(token, stored_hash)
 
         # log event to mongoDB

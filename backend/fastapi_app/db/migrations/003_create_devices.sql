@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS devices (
   device_uuid UUID NOT NULL UNIQUE,
 
   credential_type VARCHAR(20) NOT NULL DEFAULT 'token',
-  credential_hash TEXT,              -- bcrypt/HMAC of token
+  credential_hash TEXT NULL,              -- bcrypt/HMAC of token
 
   device_name TEXT,
   assigned_site TEXT,

@@ -33,3 +33,6 @@ archive
 
 # seed user file
 seed_users.py
+
+# vscode json
+.vscode

@@ -5,7 +5,7 @@ def create_devices_table(cursor):
         device_id SERIAL PRIMARY KEY,
         device_uuid UUID NOT NULL UNIQUE,
         credential_type VARCHAR(20) NOT NULL DEFAULT 'token',
-        credential_hash TEXT,
+        credential_hash TEXT NULL,
         device_name TEXT,
         assigned_site TEXT,
         registered_by INTEGER REFERENCES users(employee_id),

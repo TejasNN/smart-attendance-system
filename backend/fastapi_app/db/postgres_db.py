@@ -1,6 +1,6 @@
 # backend/fastapi_app/db/postgres_db.py
 from psycopg2.extras import RealDictCursor, Json
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 from .connection import get_pg_connection
 from .tables.users_table import create_users_table
 from .tables.devices_table import create_devices_table
@@ -67,7 +67,7 @@ class PostgresDB:
         return self.cursor.fetchone()
     
     
-    def set_device_credential(self, device_id: int, crendential_hash: str, status: str='active', 
+    def set_device_credential(self, device_id: int, credential_hash: str, status: str='active', 
                               device_name: Optional[str]=None, app_version: Optional[str]=None,
                               os_version: Optional[str]=None):
         query = """
@@ -80,9 +80,52 @@ class PostgresDB:
             updated_at = now()
         WHERE device_id = %s;
         """
-        self.cursor.execute(query, (crendential_hash, status, device_name, app_version, os_version,device_id))
+        self.cursor.execute(query, (credential_hash, status, device_name, app_version, os_version,device_id))
         self.conn.commit()
 
+
+    def get_pending_devices(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """
+        Return devices with status = 'pending', ordered by created_at desc.
+        """
+        query = """
+            SELECT device_id, device_uuid, device_name, assigned_site, app_version, 
+            os_version, status, created_at
+            FROM devices
+            WHERE status = 'pending'
+            ORDER BY created_at DESC
+            LIMIT %s;
+        """
+        self.cursor.execute(query, (limit,))
+        rows = self.cursor.fetchall()
+        return rows
+    
+
+    def get_all_devices(self, limit: int = 100):
+        query = """
+            SELECT device_id, device_uuid, device_name, status, assigned_site, 
+            app_version, os_version, last_update_check, created_at
+            FROM devices
+            ORDER BY created_at DESC
+            LIMIT %s;
+        """
+        self.cursor.execute(query, (limit,))
+        rows = self.cursor.fetchall()
+        return rows
+    
+
+    def clear_token(self, device_id: int) -> None:
+        """
+        Set credential_hash to NULL so device must fetch a new token after approval.
+        """
+        query = """
+            UPDATE devices
+            SET credential_hash = NULL, updated_at = now()
+            WHERE device_id = %s;
+        """
+        self.cursor.execute(query, (device_id,))
+        self.conn.commit()
+         
 
     def update_device_status(self, device_id: int, status: str):
         query = "UPDATE devices SET status = %s, updated_at = now() WHERE device_id = %s;"
@@ -101,7 +144,7 @@ class PostgresDB:
     
     def assign_employee_to_device(self, device_id: int, employee_id: int, assigned_by: Optional[int]=None) -> bool:
         query = """
-        INSERT INTO device_assignmentsn (device_id, employee_id, assigned_by)
+        INSERT INTO device_assignments (device_id, employee_id, assigned_by)
         VALUES (%s, %s, %s)
         ON CONFLICT (device_id, employee_id) DO NOTHING
         RETURNING id; 
@@ -114,13 +157,38 @@ class PostgresDB:
     
     def get_assigned_employees(self, device_id: int) -> List[Dict]:
         query = """
-        SELECT da.id, da,device_id, da.employee_id, u.username, da.assigned_at
+        SELECT da.id, da.device_id, da.employee_id, u.username, da.assigned_at
         FROM device_assignments da
         JOIN users u ON u.employee_id = da.employee_id
         WHERE da.device_id = %s;
         """
         self.cursor.execute(query, (device_id,))
         return self.cursor.fetchall()
+    
+
+    def get_assignments_for_device(self, device_id: int) -> List[Dict[str, Any]]:
+        query = """
+        SELECT da.id, da.device_id, da.employee_id, u.username, da.assigned_at
+        FROM device_assignments da
+        LEFT JOIN users u ON u.employee_id = da.employee_id
+        WHERE da.device_id = %s
+        ORDER BY da.assigned_at DESC;
+        """
+        self.cursor.execute(query, (device_id,))
+        return self.cursor.fetchall()
+    
+
+    def remove_assignments_for_device(self, device_id: int) -> None:
+        """
+        Remove ALL assignments for the given device.
+        Used when device is revoked/deactivated by admin.
+        """
+        query = """
+            DELETE FROM device_assignments
+            WHERE device_id = %s;
+        """
+        self.cursor.execute(query, (device_id,))
+        self.conn.commit()
     
     def is_employee_assigned_to_device(self, device_id: int, employee_id: int) -> bool:
         query = "SELECT 1 FROM device_assignments WHERE device_id = %s AND employee_id = %s;"
@@ -147,3 +215,14 @@ class PostgresDB:
         query = "SELECT * FROM users WHERE username = %s;"
         self.cursor.execute(query, (username,))
         return self.cursor.fetchone()
+    
+
+    def validate_employee_ids(self, employee_ids: List[int]) -> List[int]:
+        query = """
+            SELECT employee_id
+            FROM users
+            WHERE employee_id = ANY(%s);
+        """
+        self.cursor.execute(query, (employee_ids,))
+        rows = self.cursor.fetchall()
+        return rows

@@ -1,6 +1,10 @@
 # backend/fastapi_app/db/repos/device_repo.py
-from typing import Optional, Dict, Any
+import logging
+from typing import Optional, Dict, Any, List
 from backend.fastapi_app.db.postgres_db import PostgresDB
+
+logger = logging.getLogger(__name__)
+
 
 class DeviceRepository:
     """
@@ -40,11 +44,20 @@ class DeviceRepository:
         dev = self.get_by_uuid(device_uuid)
         if not dev:
             return False
-        return bool(dev.get("crendential_hash"))
+        return bool(dev.get("credential_hash"))
     
 
-    def close(self):
+    def get_pending_devices(self, limit: int) -> List[Dict[str, Any]]:
+        return self._db.get_pending_devices(limit)
+    
+
+    def get_all_devices(self, limit: int) -> List[Dict[str, Any]]:
+        return self._db.get_all_devices(limit)
+    
+
+    def clear_token(self, device_id: int):
         try:
-            self._db.close()
-        except Exception:
-            pass
+            self._db.clear_token(device_id)
+        except Exception as e:
+            logger.exception(f"Failed to clear token: {e}")
+            raise
