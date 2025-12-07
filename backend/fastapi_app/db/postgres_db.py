@@ -226,3 +226,14 @@ class PostgresDB:
         self.cursor.execute(query, (employee_ids,))
         rows = self.cursor.fetchall()
         return rows
+    
+
+    def get_user_status(self, employee_id: int) -> Optional[Dict]:
+        query = """
+            SELECT username, is_active 
+            FROM users 
+            WHERE employee_id = %s 
+            LIMIT 1;
+        """
+        self.cursor.execute(query, (employee_id,))
+        return self.cursor.fetchone()

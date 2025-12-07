@@ -4,7 +4,6 @@ from backend.fastapi_app.schemas.provisioning import (
     RegisterRequestDTO, DeviceStatusDTO, FetchCredentialRequestDTO, TokenDTO
 )
 from backend.fastapi_app.services.device_service import DeviceService
-from backend.fastapi_app.core import security
 
 router = APIRouter(prefix="/api/v1/devices", tags=["devices"])
 _device_svc = DeviceService()

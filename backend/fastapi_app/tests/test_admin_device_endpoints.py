@@ -104,6 +104,26 @@ def run_api_smoke():
     print_response(resp)
     assert resp.status_code == 200
 
+    # 8.5) Operator login
+    resp = client.post("/api/v1/auth/operator/login", json={
+        "device_uuid": device_uuid,
+        "device_token": token_val,
+        "username": "xxxx",
+        "password": "xxxx"
+    })
+    print("\n8.5) Operator login: ", end=" ")
+    print_response(resp)
+    assert resp.status_code == 200
+
+    operator_session_token = resp.json().get("session_token")
+    assert operator_session_token is not None
+
+    operator_headers = {
+        "x-device-uuid": device_uuid,
+        "x-device-token": token_val,
+        "Authorization": f"Bearer {operator_session_token}"
+    }
+
     # 9) Get device details
     resp = client.get(f"/api/v1/admin/devices/{device_id}", headers=headers)
     print("\n9) Getting device details: ", end=" ")
