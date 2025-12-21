@@ -1,7 +1,7 @@
 from pymongo import MongoClient, ASCENDING
 from datetime import datetime, timezone, time
-from utils.utils import current_date_utc_midnight
-from config import MONGO_CONFIG
+from desktop_app.utils.utils import current_date_utc_midnight
+from desktop_app.config import MONGO_CONFIG
 
 class MongoDB:
     def __init__(self):

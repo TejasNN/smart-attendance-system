@@ -1,14 +1,13 @@
 # backend/fastapi_app/db/repos/assignment_repo.py
 import logging
 from typing import Optional, List, Dict, Any
-from backend.fastapi_app.db.postgres_db import PostgresDB
 
 logger = logging.getLogger(__name__)
 
 
 class AssignmentRepository:
-    def __init__(self):
-        self._db = PostgresDB()
+    def __init__(self, postgres):
+        self._db = postgres
 
 
     def is_user_assigned_to_device(self, employee_id: int, device_id: int) -> bool:

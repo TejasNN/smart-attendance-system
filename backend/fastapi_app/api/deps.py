@@ -7,12 +7,56 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from backend.fastapi_app.core.security import decode_jwt_token
 from backend.fastapi_app.db.postgres_db import PostgresDB
+from backend.fastapi_app.db.mongo_db import MongoDB
 from backend.fastapi_app.db.repos.device_repo import DeviceRepository
 from backend.fastapi_app.db.repos.assignment_repo import AssignmentRepository
 from backend.fastapi_app.services.device_service import DeviceService
+from backend.fastapi_app.services.admin_service import AdminService
+from backend.fastapi_app.services.auth_service import AuthService
 
 bearer_scheme = HTTPBearer(auto_error=False)
 logger = logging.getLogger(__name__)
+
+# -----------------------
+# Database Dependencies
+# -----------------------
+
+def get_postgres(request: Request):
+    db = getattr(request.app.state, "postgres", None)
+    if not db:
+        raise RuntimeError("Postgres not initialized")
+    return db
+
+
+def get_mongo(request: Request):
+    db = getattr(request.app.state, "mongo", None)
+    if not db:
+        raise RuntimeError("Mongo not initialized")
+    return db
+
+# -----------------------
+# Service Dependencies
+# -----------------------
+
+def get_device_service(
+    pg = Depends(get_postgres),
+    mg = Depends(get_mongo),
+):
+    return DeviceService(pg, mg)
+
+
+def get_admin_service(
+    pg = Depends(get_postgres),
+    mg = Depends(get_mongo),
+):
+    return AdminService(pg, mg)
+
+
+def get_auth_service(
+    pg = Depends(get_postgres),
+    mg = Depends(get_mongo),
+):
+    return AuthService(pg, mg)
 
 
 def admin_required(creds: HTTPAuthorizationCredentials = 

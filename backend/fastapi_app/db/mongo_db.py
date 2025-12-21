@@ -2,14 +2,15 @@
 from pymongo import MongoClient, ASCENDING
 from datetime import datetime, timezone, time
 from desktop_app.utils.utils import current_date_utc_midnight, current_datetime_utc
-from desktop_app.config import MONGO_CONFIG
 from backend.fastapi_app.schemas.provisioning import DeviceLogDTO
+from backend.fastapi_app.db.connection import get_mongo_client
+from backend.fastapi_app.core.config import settings
 from typing import Optional, List, Dict, Any
 
 class MongoDB:
     def __init__(self):
-        self.client = MongoClient(MONGO_CONFIG['host'], MONGO_CONFIG['port'])
-        self.db = self.client[MONGO_CONFIG['database']]
+        self.client = get_mongo_client()
+        self.db = self.client[settings.MONGO_DB]
 
         # existing attendance logs collection (kept for backwards compatibility)
         self.attendance = self.db['logs']
@@ -162,7 +163,14 @@ class MongoDB:
         return list(cursor)
     
 
-    def sanitize_mongo_doc(doc):
+    def sanitize_mongo_doc(self, doc):
         if "_id" in doc:
             del doc["_id"]
         return doc
+    
+
+    def close(self):
+        try:
+            self.client.close()
+        except Exception:
+            raise

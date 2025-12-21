@@ -11,11 +11,11 @@ class AuthService:
     Handles admin and operator authentication.
     """
 
-    def __init__(self):
-        self.user_repo = UserRepository()
-        self.assignment_repo = AssignmentRepository()
-        self.device_repo = DeviceRepository()
-        self.device_service = DeviceService()
+    def __init__(self, postgres_db=None, mongo_db=None):
+        self.user_repo = UserRepository(postgres_db)
+        self.assignment_repo = AssignmentRepository(postgres_db)
+        self.device_repo = DeviceRepository(postgres_db)
+        self.device_service = DeviceService(postgres_db, mongo_db)
 
     
     #----------- Admin login ---------------

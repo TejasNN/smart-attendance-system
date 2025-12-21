@@ -1,6 +1,6 @@
 from bson import ObjectId
-from utils.utils import current_date_utc_midnight, current_datetime_utc
-from config import DEFAULT_SHIFT_POLICY
+from desktop_app.utils.utils import current_date_utc_midnight, current_datetime_utc
+from desktop_app.config import DEFAULT_SHIFT_POLICY
 
 class AttendanceRecord:
     def __init__(self, employee_id: str, name: str, department: str, status: str, marked_by: str):

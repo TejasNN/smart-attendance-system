@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 from datetime import datetime, timedelta
-from utils.utils import ( 
+from desktop_app.utils.utils import ( 
     current_date_utc_midnight,
     get_ist_time_from_utc, get_ist_date_from_utc
 )

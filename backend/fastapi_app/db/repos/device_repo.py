@@ -1,7 +1,6 @@
 # backend/fastapi_app/db/repos/device_repo.py
 import logging
 from typing import Optional, Dict, Any, List
-from backend.fastapi_app.db.postgres_db import PostgresDB
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +11,8 @@ class DeviceRepository:
     Uses your existing PostgresDB class so SQL is centralized there.
     """
 
-    def __init__(self):
-        self._db = PostgresDB()
+    def __init__(self, postgres):
+        self._db = postgres
 
     
     def create_register_request(self, device_uuid: str, device_name: str = None,

@@ -1,25 +1,25 @@
+from collections import deque
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QSizePolicy, QStackedWidget
+    QSizePolicy, QStackedWidget, QGraphicsOpacityEffect
 )
 from PyQt6.QtCore import (
-    Qt, QTimer, pyqtSignal, QPropertyAnimation, QEasingCurve, 
-    QSize, QParallelAnimationGroup , QRect
+    Qt, QTimer, QPropertyAnimation, QEasingCurve, 
+    QSize
 )
-from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter
+from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter, QMovie
 import datetime
 
 class DashboardUI(QWidget):
-    date_filter_changed = pyqtSignal(str, object, object)
-
     def __init__(self, parent=None):
         super().__init__(parent)
         self.sidebar_anim = None
         self.sidebar_anim2 = None
         self.sidebar_expanded = True
+        self._loader_retry_callback = None
+        self._loader_cancel_callback = None
         self._build_ui()
         self._start_clock()
-        self._pending_summary = None
 
     def _build_ui(self):
         outer = QHBoxLayout(self)
@@ -121,6 +121,88 @@ class DashboardUI(QWidget):
         self.content_stack.addWidget(dashboard_page)
 
         right_container.addWidget(self.content_stack)
+
+        # -------------------------------
+        # Loader overlay that covers entire DashboardUI (not just content)
+        # -------------------------------
+        self._loader_overlay = QFrame(self.window())
+        self._loader_overlay.setVisible(False)
+        self._loader_overlay.setObjectName("loaderOverlay")
+        self._loader_overlay.setStyleSheet("""
+            #loaderOverlay {
+                background-color: rgba(255, 255, 255, 210);
+            }
+        """)
+
+        loader_layout = QVBoxLayout(self._loader_overlay)
+        loader_layout.setContentsMargins(24, 24, 24, 24)
+        loader_layout.setSpacing(16)
+        loader_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Loader spinner (centered)
+        self._loader_spinner = QLabel()
+        spinner_path = "assets/icons/loader.gif"
+        try:
+            self._loader_movie = QMovie(spinner_path)
+            self._loader_spinner.setMovie(self._loader_movie)
+        except Exception:
+            self._loader_spinner.setText("Loading...")
+            self._loader_movie = None
+        self._loader_spinner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        # Message label (below spinner)
+        self._loader_message = QLabel("Working...")
+        self._loader_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loader_message.setWordWrap(True)
+        self._loader_message.setStyleSheet("""
+            color: black;
+            font-size: 16px;
+            font-weight: 600;
+            padding: 10px 20px;
+        """)
+        self._loader_message.setMinimumWidth(380)
+        self._loader_message.setMaximumWidth(700)
+
+        self._loader_message_effect = QGraphicsOpacityEffect()
+        self._loader_message.setGraphicsEffect(self._loader_message_effect)
+        self._loader_message_effect.setOpacity(1.0)
+
+        self._loader_message_queue = deque()
+        self._loader_message_timer = QTimer()
+        self._loader_message_timer.timeout.connect(self._show_next_loader_message)
+        self._loader_message_timer.setSingleShot(True)
+        self._current_loader_animating = False
+
+        # Add to layout
+        loader_layout.addWidget(self._loader_spinner)
+        loader_layout.addWidget(self._loader_message)
+
+        # Retry + Cancel controls (below message)
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+
+        self._loader_retry_btn = QPushButton("Retry")
+        self._loader_retry_btn.setFixedHeight(34)
+        self._loader_retry_btn.setMinimumWidth(120)
+        self._loader_retry_btn.setStyleSheet("color: black;")
+        self._loader_retry_btn.clicked.connect(lambda: self._on_loader_retry())
+
+        self._loader_cancel_btn = QPushButton("Cancel")
+        self._loader_cancel_btn.setFixedHeight(34)
+        self._loader_cancel_btn.setMinimumWidth(120)
+        self._loader_cancel_btn.setStyleSheet("color: black;")
+        self._loader_cancel_btn.clicked.connect(lambda: self._on_loader_cancel())
+
+        btn_row.addStretch()
+        btn_row.addWidget(self._loader_retry_btn)
+        btn_row.addWidget(self._loader_cancel_btn)
+        btn_row.addStretch()
+
+        loader_layout.addLayout(btn_row)
+
+        # Initially hide controls — only show when waiting for credential
+        self._loader_retry_btn.setVisible(False)
+        self._loader_cancel_btn.setVisible(False)
 
         # Add sidebar and right_container to outer layout with proper stretch ratio
         outer.addWidget(self.sidebar_frame, 0)
@@ -239,15 +321,6 @@ class DashboardUI(QWidget):
             selection-background-color: #2563eb;
             selection-color: #ffffff;
         }
-                           
-        #centralFrame QMessageBox,
-        #contentStack QMessageBox  {
-            background-color: none; 
-            background: none;
-            border: none;
-            border-radius: 0;
-            color: black; 
-        }
     """)
 
 
@@ -360,60 +433,192 @@ class DashboardUI(QWidget):
         return QIcon(path)
 
     
-    def animate_page_transition(self, old_index, new_index, direction="left"):
-        """
-        Animate smooth slide transition between two pages in the content stack.
-        direction: 'left' (default) or 'right'
-        """
-        old_widget = self.content_stack.widget(old_index)
-        new_widget = self.content_stack.widget(new_index)
+    # def animate_page_transition(self, old_index, new_index, direction="left"):
+    #     """
+    #     Animate smooth slide transition between two pages in the content stack.
+    #     direction: 'left' (default) or 'right'
+    #     """
+    #     old_widget = self.content_stack.widget(old_index)
+    #     new_widget = self.content_stack.widget(new_index)
 
-        if not old_widget or not new_widget:
-            # fallback to normal change if invalid
-            self.content_stack.setCurrentIndex(new_index)
-            return
+    #     if not old_widget or not new_widget:
+    #         # fallback to normal change if invalid
+    #         self.content_stack.setCurrentIndex(new_index)
+    #         return
         
-        stack_geometry = self.content_stack.geometry()
-        width = stack_geometry.width()
-        height = stack_geometry.height()
+    #     stack_geometry = self.content_stack.geometry()
+    #     width = stack_geometry.width()
+    #     height = stack_geometry.height()
 
-        # Starting position for animation
-        if direction == "left":
-            new_start = QRect(width, 0, width, height)
-            new_end = QRect(0, 0, width, height)
-            old_end = QRect(-width, 0, width, height)
+    #     # Starting position for animation
+    #     if direction == "left":
+    #         new_start = QRect(width, 0, width, height)
+    #         new_end = QRect(0, 0, width, height)
+    #         old_end = QRect(-width, 0, width, height)
+    #     else:
+    #         new_start = QRect(-width, 0, width, height)
+    #         new_end = QRect(0, 0, width, height)
+    #         old_end = QRect(width, 0, width, height)
+
+    #     # Prepare new widget
+    #     new_widget.setGeometry(new_start)
+    #     new_widget.show()
+
+    #     # Animation for old and new pages
+    #     anim_old = QPropertyAnimation(old_widget, b"geometry")
+    #     anim_old.setDuration(400)
+    #     anim_old.setStartValue(stack_geometry)
+    #     anim_old.setEndValue(old_end)
+    #     anim_old.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+    #     anim_new = QPropertyAnimation(new_widget, b"geometry")
+    #     anim_new.setDuration(400)
+    #     anim_new.setStartValue(new_start)
+    #     anim_new.setEndValue(new_end)
+    #     anim_new.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+    #     # Group animations together
+    #     group = QParallelAnimationGroup()
+    #     group.addAnimation(anim_old)
+    #     group.addAnimation(anim_new)
+
+    #     def on_finished():
+    #         self.content_stack.setCurrentIndex(new_index)
+    #         new_widget.setGeometry(0, 0, width, height)
+    #         old_widget.setGeometry
+
+    #     group.finished.connect(on_finished)
+    #     group.start()
+    #     self._page_transition_anim = group
+
+
+    # ------- Loader overlay controls helper functions --------
+
+    def show_loader(self, initial_message: str = "Working..."):
+        # ensure overlay covers entire main window
+        w = self.window()
+        self._loader_overlay.setGeometry(0,0, w.width(), w.height())
+        if self._loader_movie:
+            try:
+                self._loader_movie.start()
+            except Exception:
+                raise
+
+        self._loader_message.setText(initial_message)
+        self._loader_message_queue.clear()
+        self._loader_overlay.raise_()
+        self._loader_overlay.setWindowOpacity(0)
+        self._loader_overlay.setVisible(True)
+
+        # Fade-in animation
+        self._fade_in = QPropertyAnimation(self._loader_overlay, b"windowOpacity")
+        self._fade_in.setDuration(300)
+        self._fade_in.setStartValue(0)
+        self._fade_in.setEndValue(1)
+        self._fade_in.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._fade_in.start()
+
+
+    def update_loader(self, message: str):
+        self._loader_message_queue.append(message)
+        if not self._current_loader_animating:
+            self._show_next_loader_message()
+
+    
+    def hide_loader(self):
+        if self._loader_movie:
+            try:
+                self._loader_movie.stop()
+            except Exception:
+                raise
+
+        # Fade-out animation
+        self._fade_out = QPropertyAnimation(self._loader_overlay, b"windowOpacity")
+        self._fade_out.setDuration(300)
+        self._fade_out.setStartValue(1)
+        self._fade_out.setEndValue(0)
+        self._fade_out.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        self._fade_out.finished.connect(lambda: self._loader_overlay.setVisible(False))
+        self._fade_out.start()
+
+
+    def _show_next_loader_message(self):
+        if not self._loader_message_queue:
+            self._current_loader_animating = False
+
+            # --- Smooth fade-out for the final loader overlay ---
+            fade_out_final = QPropertyAnimation(self._loader_overlay, b"windowOpacity")
+            fade_out_final.setDuration(400)
+            fade_out_final.setStartValue(1)
+            fade_out_final.setEndValue(0)
+            fade_out_final.setEasingCurve(QEasingCurve.Type.InOutCubic)
+            fade_out_final.finished.connect(lambda: self._loader_overlay.setVisible(False))
+            fade_out_final.start()
+
+            # Prevent garbage collection
+            self._fade_out_final = fade_out_final
+            return
+
+        self._current_loader_animating = True
+        next_message = self._loader_message_queue.popleft()
+
+        if not hasattr(self, "_loader_message_effect"):
+            # fallback to simple update if effect missing
+            self._loader_message.setText(next_message)
+            self._loader_message.repaint()
         else:
-            new_start = QRect(-width, 0, width, height)
-            new_end = QRect(0, 0, width, height)
-            old_end = QRect(width, 0, width, height)
+            # Step 1: Fade out current text
+            fade_out = QPropertyAnimation(self._loader_message_effect, b"opacity")
+            fade_out.setDuration(180)
+            fade_out.setStartValue(1)
+            fade_out.setEndValue(0)
+            fade_out.setEasingCurve(QEasingCurve.Type.InOutQuad)
+            fade_out.finished.connect(lambda: self._fade_in_message(next_message))
+            fade_out.start()
 
-        # Prepare new widget
-        new_widget.setGeometry(new_start)
-        new_widget.show()
+            # Prevent garbage collection
+            self._fade_out_message = fade_out
 
-        # Animation for old and new pages
-        anim_old = QPropertyAnimation(old_widget, b"geometry")
-        anim_old.setDuration(400)
-        anim_old.setStartValue(stack_geometry)
-        anim_old.setEndValue(old_end)
-        anim_old.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        # Slightly longer delay for the final message
+        delay = 900 if len(self._loader_message_queue) == 0 else 450
+        self._loader_message_timer.start(delay)
 
-        anim_new = QPropertyAnimation(new_widget, b"geometry")
-        anim_new.setDuration(400)
-        anim_new.setStartValue(new_start)
-        anim_new.setEndValue(new_end)
-        anim_new.setEasingCurve(QEasingCurve.Type.InOutCubic)
 
-        # Group animations together
-        group = QParallelAnimationGroup()
-        group.addAnimation(anim_old)
-        group.addAnimation(anim_new)
+    def _fade_in_message(self, text):
+        self._loader_message.setText(text)
+        fade_in = QPropertyAnimation(self._loader_message_effect, b"opacity")
+        fade_in.setDuration(200)
+        fade_in.setStartValue(0)
+        fade_in.setEndValue(1)
+        fade_in.start()
+        self._fade_in_message_anim = fade_in
 
-        def on_finished():
-            self.content_stack.setCurrentIndex(new_index)
-            new_widget.setGeometry(0, 0, width, height)
-            old_widget.setGeometry
+    # controls for retry/cancel
+    def show_waiting_controls(self, show: bool = True):
+        """Show/hide retry & cancel buttons on overlay."""
+        self._loader_retry_btn.setVisible(show)
+        self._loader_cancel_btn.setVisible(show)
 
-        group.finished.connect(on_finished)
-        group.start()
-        self._page_transition_anim = group
+    
+    def _on_loader_retry(self):
+        if callable(self._loader_retry_callback):
+            self._loader_retry_callback()
+
+    
+    def _on_loader_cancel(self):
+        if callable(self._loader_cancel_callback):
+            self._loader_cancel_callback()
+
+
+    def set_loader_retry_callback(self, callback):
+        self._loader_retry_callback = callback
+
+
+    def set_loader_cancel_callback(self, callback):
+        self._loader_cancel_callback = callback
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self._loader_overlay.isVisible():
+            w = self.window()
+            self._loader_overlay.setGeometry(0, 0, w.width(), w.height())

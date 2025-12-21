@@ -1,10 +1,9 @@
 # backend/app/db/repos/user_repo.py
 from typing import Optional, Dict, Any
-from backend.fastapi_app.db.postgres_db import PostgresDB
 
 class UserRepository:
-    def __init__(self):
-        self._db = PostgresDB()
+    def __init__(self, postgres):
+        self._db = postgres
 
     
     def get_by_username(self, username: str) -> Optional[Dict[str, Any]]:

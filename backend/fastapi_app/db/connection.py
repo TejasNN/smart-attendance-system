@@ -1,18 +1,21 @@
 # backend/fastapi_app/db/connection.py
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from desktop_app.config import POSTGRES_CONFIG
 from pymongo import MongoClient
-from desktop_app.config import MONGO_CONFIG
+from backend.fastapi_app.core.config import settings
 
 def get_pg_connection():
-    """
-    Returns a new psycopg2 connection using POSTGRES_CONFIG.
-    Keep behavior consistent with existing design (caller manages cursor/closing).
-    """
-    conn = psycopg2.connect(**POSTGRES_CONFIG)
+    
+    conn = psycopg2.connect(
+        host=settings.POSTGRES_HOST,
+        port=settings.POSTGRES_PORT,
+        database=settings.POSTGRES_DB,
+        user=settings.POSTGRES_USER,
+        password=settings.POSTGRES_PASSWORD,
+        cursor_factory=RealDictCursor
+    )
     return conn
 
 def get_mongo_client():
-    client = MongoClient(MONGO_CONFIG['host'], MONGO_CONFIG['port'])
+    client = MongoClient(settings.MONGO_URI)
     return client

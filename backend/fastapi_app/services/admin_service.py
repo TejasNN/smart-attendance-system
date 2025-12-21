@@ -3,7 +3,6 @@ from typing import Optional, Dict, List, Any
 from backend.fastapi_app.db.repos.device_repo import DeviceRepository
 from backend.fastapi_app.services.device_service import DeviceService
 from backend.fastapi_app.db.repos.assignment_repo import AssignmentRepository
-from backend.fastapi_app.db.mongo_db import MongoDB
 from desktop_app.utils.utils import current_datetime_utc
 
 logger = logging.getLogger(__name__)
@@ -13,11 +12,11 @@ class AdminService:
     """
     Core provisioning engine. No API exposure here — this is pure service layer.
     """
-    def __init__(self):
-        self.device_repo = DeviceRepository()
-        self.device_service = DeviceService()
-        self.assignment_repo = AssignmentRepository()
-        self.mongo_db = MongoDB()
+    def __init__(self, postgres, mongo):
+        self.device_repo = DeviceRepository(postgres)
+        self.device_service = DeviceService(postgres, mongo)
+        self.assignment_repo = AssignmentRepository(postgres)
+        self.mongo_db = mongo
 
 
     def list_pending_devices(self, limit: int = 100) -> List[Dict[str, Any]]:

@@ -14,13 +14,13 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QImage, QPixmap, QFont, QColor
  
-from threads.camera_thread import CameraThread
-from threads.recognition_worker import RecognitionWorker
-from services.face_recognizer import FaceRecongnizer
-from services.attendance_record import AttendanceRecord
+from desktop_app.threads.camera_thread import CameraThread
+from desktop_app.threads.recognition_worker import RecognitionWorker
+from desktop_app.services.face_recognizer import FaceRecongnizer
+from desktop_app.services.attendance_record import AttendanceRecord
 
-from config import FACE_MATCH_TOLERANCE
-from config import FACE_SKIP_INTERVAL
+from desktop_app.config import FACE_MATCH_TOLERANCE
+from desktop_app.config import FACE_SKIP_INTERVAL
 
 class AttendanceWindow(QWidget):
     FEEDBACK_DURATION_MS = 3000     # how long the feedback label stays visible

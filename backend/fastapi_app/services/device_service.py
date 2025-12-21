@@ -1,18 +1,16 @@
 from typing import Optional, Dict, Any
 from backend.fastapi_app.schemas.provisioning import RegisterRequestDTO, DeviceStatusDTO, TokenDTO
 from backend.fastapi_app.db.repos.device_repo import DeviceRepository
-from backend.fastapi_app.db.mongo_db import MongoDB
 from backend.fastapi_app.services.token_service import generate_token, hash_token_bcrypt, verify_token_bcrypt
 from desktop_app.utils.utils import current_datetime_utc
-import uuid
 
 class DeviceService:
     """
     Core provisioning engine. No API exposure here — this is pure service layer.
     """
-    def __init__(self):
-        self.repo = DeviceRepository()
-        self.mongo = MongoDB()
+    def __init__(self, postgres, mongo):
+        self.repo = DeviceRepository(postgres)
+        self.mongo = mongo
 
     
     def register_request(self, payload: RegisterRequestDTO, registered_by: Optional[int] = None) -> Dict[str, Any]:

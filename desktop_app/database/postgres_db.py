@@ -1,6 +1,6 @@
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from config import POSTGRES_CONFIG
+from desktop_app.config import POSTGRES_CONFIG
 import pickle   # for serializing face encodings
 
 class PostgresDB:
