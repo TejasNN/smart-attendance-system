@@ -1,12 +1,11 @@
 # smart_attendance/gui/main_window.py
-from PyQt6.QtWidgets import QMainWindow, QMessageBox
-from PyQt6.QtCore import QThreadPool
+from PyQt6.QtWidgets import QMainWindow
+from PyQt6.QtCore import QThreadPool, QTimer
 from functools import partial
 
 from desktop_app.gui.attendance_window import AttendanceWindow
 from desktop_app.gui.logs_window import LogsWindow
 from desktop_app.gui.dashboard_ui import DashboardUI
-from desktop_app.gui.login_window import LoginWindow
 from desktop_app.utils.utils import center_window
 
 from desktop_app.threads.provisioning_thread import ProvisioningThread
@@ -53,8 +52,23 @@ class MainWindow(QMainWindow):
         self.dashboard_ui.highlight_active_button(self.dashboard_ui.btn_attendance)
 
         # Configure loader callbacks so DashboardUI buttons work
-        self.dashboard_ui.set_loader_retry_callback(self._retry_provisioning_flow)
-        self.dashboard_ui.set_loader_cancel_callback(self._cancel_provisioning_flow)
+        self.dashboard_ui.provision_overlay.retry_requested.connect(self._retry_provisioning_flow)
+        self.dashboard_ui.provision_overlay.cancel_requested.connect(self._cancel_provisioning_flow)
+
+        # login wiring
+        self.dashboard_ui.login_submitted.connect(
+            lambda username, password: self.handle_login_submission(username, password)
+        )
+
+        self.dashboard_ui.login_cancel_requested.connect(
+            lambda: self.close()
+        )
+
+        self.dashboard_ui.forgot_password_requested.connect(
+            lambda: self.dashboard_ui.show_overlay_feedback(
+                "Please contact your administrator to reset your password", "info"
+            )
+        )
 
         # worker handle
         self._provision_worker = None
@@ -98,7 +112,7 @@ class MainWindow(QMainWindow):
         """
         # Show loader and waiting controls
         self.dashboard_ui.show_loader("Preparing device registration...")
-        self.dashboard_ui.show_waiting_controls(True)
+        self.dashboard_ui.provision_overlay.set_state_waiting()
 
         # Create worker
         worker = ProvisioningThread(api_client=self._api_client)
@@ -123,6 +137,9 @@ class MainWindow(QMainWindow):
             except Exception:
                 raise
             self._provision_worker = None
+
+        self.dashboard_ui.update_loader("Retrying provisioning…")
+        self.dashboard_ui.provision_overlay.set_state_waiting()
         
         # restart
         self.start_provisioning_flow()
@@ -137,6 +154,7 @@ class MainWindow(QMainWindow):
         self._provision_worker = None
         self.dashboard_ui.show_waiting_controls(False)
         self.dashboard_ui.hide_loader()
+        QTimer.singleShot(100, self.close)
 
 
     def _on_credential_fetched(self, token: str):
@@ -149,19 +167,32 @@ class MainWindow(QMainWindow):
             if not keyring_get("device_token"):
                 keyring_set("device_token", token)
 
-            # hide loader and controls
-            self.dashboard_ui.show_waiting_controls(False)
-            self.dashboard_ui.hide_loader()
             self._provision_worker = None
 
-            # Notify user and open login window
-            QMessageBox.information(self, "Device approved", "Device approved and credential received. Please login.")
-            # proceed to login
-            self.open_login_window()
+            # Show success UI
+            self.dashboard_ui.update_loader("Device approved successfully")
+            self.dashboard_ui.provision_overlay.set_state_success()
+            
+            # show toast
+            self.dashboard_ui.show_overlay_feedback(
+                "Device approved and credential received. Please login.",
+                "success"
+            )
+
+            # Delay hiding overlay & opening login
+            QTimer.singleShot(2500, lambda: (
+                self.dashboard_ui.hide_loader(),
+                self.open_login_window()
+                )
+            )
+
         except Exception as e:
             # Still proceed to login but inform user
-            QMessageBox.warning(self, "Warning", f"Provisioned but failed to persist token locally: {e}")
-            self.open_login_window()
+            self.dashboard_ui.show_overlay_feedback(
+                f"Provisioned but failed to persist token locally: {e}", 
+                "info"
+            )
+            QTimer.singleShot(2500, self.open_login_window)
 
     
     def _on_provisioning_failure(self, message: str):
@@ -170,7 +201,8 @@ class MainWindow(QMainWindow):
         Show message and leave retry/cancel visible.
         """
         self.dashboard_ui.update_loader(str(message))
-        self.dashboard_ui.show_waiting_controls(True)
+        self.dashboard_ui.show_overlay_feedback(str(message), "error")
+        self.dashboard_ui.provision_overlay.set_state_failed()
         # Keep worker reference cleared
         self._provision_worker = None
 
@@ -178,31 +210,70 @@ class MainWindow(QMainWindow):
     def _on_credential_error(self, message: str):
         # Show final error and leave retry/cancel visible
         self.dashboard_ui.update_loader(f"Error: {message}")
-        self.dashboard_ui.show_waiting_controls(True)
+        self.dashboard_ui.show_overlay_feedback(f"Error: {message}", "error")
+        self.dashboard_ui.provision_overlay.set_state_failed()
         self._provision_worker = None
 
     
     # --------------- Login flow --------------
     def open_login_window(self):
-        """
-        Opens LoginWindow. On successful operator login, the login window emits
-        login_success(session_token, employee_id, username) which we listen for.
-        """
-        login = LoginWindow(api_client=self._api_client, parent=self)
-        login.login_success.connect(self._on_operator_login_success)
-        login.exec()
+        self.dashboard_ui.show_login_overlay()
 
 
-    def _on_operator_login_success(self, session_token: str, employee_id: int, username: str):
+    def handle_login_submission(self, username, password):
         """
         Called when operator logs in successfully.
         session_token is available for attendance calls.
         Show attendance page.
         """
+        if not username or not password:
+            self.dashboard_ui.show_overlay_feedback("Username and Password required", "error")
+            return
+        
+        device_uuid = keyring_get("device_uuid")
+        device_token = keyring_get("device_token")
+
+        try:
+            resp = self._api_client.operator_login(
+                device_uuid=device_uuid,
+                device_token=device_token,
+                username=username,
+                password=password
+            )
+        except Exception as e:
+            message = str(e)
+            # If API returned invalid credentials
+            if "401" in message or "invalid" in message.lower():
+                self.dashboard_ui.login_overlay.show_field_error_state("Invalid username or password")
+                self.dashboard_ui.show_overlay_feedback("Invalid username or password", "error")
+            else:
+                # Real network/server failure
+                self.dashboard_ui.login_overlay.show_field_error_state("Network or server error")
+                self.dashboard_ui.show_overlay_feedback(str(e), "error")
+            return
+        
+        session_token = resp.get("session_token")
+        employee_id = resp.get("employee_id")
+        operator_username = resp.get("username") or username
+
+        if not session_token or not employee_id:
+            self.dashboard_ui.login_overlay.show_field_error_state(
+                "Invalid username or password"
+            )
+            return
+        
         self._session_token = session_token
-        # Hide any loader if present
-        self.dashboard_ui.hide_loader()
+        self.dashboard_ui.login_overlay.show_success_state()
+
+        QTimer.singleShot(400, lambda: 
+            self.dashboard_ui.show_overlay_feedback(
+                f"Login successful: Welcome {operator_username}", 
+                "success"
+            )
+        )
+
+        QTimer.singleShot(1800, self.dashboard_ui._hide_login_overlay)
+
         # Open attendance page
         self.dashboard_ui.content_stack.setCurrentIndex(self.page_attendance_idx)
         self.dashboard_ui.highlight_active_button(self.dashboard_ui.btn_attendance)
-        QMessageBox.information(self, "Login successful", f"Welcome {username} (id={employee_id})")

@@ -40,15 +40,6 @@ class AuthService:
     # ---------- Operator login (device + assignment checks) -------------
     def operator_login(self, device_uuid: str, device_token: str, username: str, 
                        password: str) -> Optional[Dict[str, Any]]:
-        # validate device token and status
-        device_row = self.device_repo.get_by_uuid(device_uuid)
-        if not device_row:
-            return None
-        
-        # check device token validity
-        if not self.device_service.validate_device_token(device_uuid, device_token):
-            return None
-        
         # fetch user
         user = self.user_repo.get_by_username(username)
         if not user:
@@ -56,6 +47,15 @@ class AuthService:
         if user.get("role") != "operator" or not user.get("is_active"):
             return None
         if not verify_password(password, user.get("password_hash")):
+            return None
+        
+        # validate device token and status
+        device_row = self.device_repo.get_by_uuid(device_uuid)
+        if not device_row:
+            return None
+        
+        # check device token validity
+        if not self.device_service.validate_device_token(device_uuid, device_token):
             return None
         
         # check assignment: device_id and employee_id must be linked

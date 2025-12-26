@@ -1,93 +1,112 @@
-from collections import deque
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
-    QSizePolicy, QStackedWidget, QGraphicsOpacityEffect
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
+    QSizePolicy, QStackedWidget, QToolButton
 )
 from PyQt6.QtCore import (
     Qt, QTimer, QPropertyAnimation, QEasingCurve, 
-    QSize
+    QSize, pyqtSignal
 )
-from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter, QMovie
-import datetime
+from PyQt6.QtGui import QFont, QIcon, QPixmap, QPainter
+from desktop_app.gui.widgets.overlay import ProvisioningOverlay
+from desktop_app.gui.widgets.login_overlay import LoginOverlay
+from desktop_app.gui.widgets.vision_toast import VisionToast
+import datetime, os
+
+base_path = os.path.dirname(os.path.abspath(__file__))
 
 class DashboardUI(QWidget):
+    login_submitted = pyqtSignal(str, str)
+    login_cancel_requested = pyqtSignal()
+    forgot_password_requested = pyqtSignal()
+    
     def __init__(self, parent=None):
         super().__init__(parent)
         self.sidebar_anim = None
-        self.sidebar_anim2 = None
         self.sidebar_expanded = True
         self._loader_retry_callback = None
         self._loader_cancel_callback = None
         self._build_ui()
         self._start_clock()
 
+
     def _build_ui(self):
         outer = QHBoxLayout(self)
         outer.setContentsMargins(12,12,12,12)
         outer.setSpacing(12)
         
-        # Left: Sidebar (rounded)
+        # ----------------------------------
+        # Sidebar
+        # ----------------------------------
         self.sidebar_frame = QFrame()
         self.sidebar_frame.setObjectName("sidebarFrame")
-        self.sidebar_frame.setFixedWidth(220)
-        self.sidebar_frame.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+
+        self.sidebar_expanded = True
+        self.sidebar_width_expanded = 220
+        self.sidebar_width_collapsed = 80
+
+        self.sidebar_frame.setMinimumWidth(self.sidebar_width_collapsed)
+        self.sidebar_frame.setMaximumWidth(self.sidebar_width_expanded)
+        self.sidebar_frame.setSizePolicy(
+            QSizePolicy.Policy.Fixed,
+            QSizePolicy.Policy.Expanding
+        )
 
         sb_layout = QVBoxLayout(self.sidebar_frame)
-        sb_layout.setContentsMargins(12,12,12,12)
-        sb_layout.setSpacing(12)
+        sb_layout.setContentsMargins(10, 10, 10, 10)
+        sb_layout.setSpacing(18)
 
-        # Toggle button at top left
-        self.btn_toggle = QPushButton()
-        self.btn_toggle.setObjectName("btnToggle")
-        icon_path = "assets/icons/menu.png"
-        self.btn_toggle.setIcon(QIcon(self._get_white_icon(icon_path)))
-        self.btn_toggle.setIconSize(QSize(24,24))
-        self.btn_toggle.setFixedSize(38,38)
+        # ---------- Toggle Button ----------
+        self.btn_toggle = QToolButton()
+        self.btn_toggle.setIcon(self._get_white_icon(
+            os.path.join(base_path, "..", "assets", "icons", "menu.png")
+        ))
+        self.btn_toggle.setIconSize(QSize(24, 24))
+        self.btn_toggle.setAutoRaise(False)
+        self.btn_toggle.setObjectName("sidebarBtn")
+        self.btn_toggle.setMinimumHeight(42)
+        self.btn_toggle.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed
+        )
         self.btn_toggle.clicked.connect(self.toggle_sidebar)
-        self.btn_toggle.setStyleSheet("""
-            QPushButton {
-                border: none;
-                background: transparent;
-                padding: 4px;
-            }
-            QPushButton:hover {
-                background-color: rgba(255,255,255,0.1);
-                border-radius: 6px;
-            }
-        """)
 
-        self.toggle_container = QHBoxLayout()
-        self.toggle_container.addWidget(self.btn_toggle, alignment=Qt.AlignmentFlag.AlignRight)
-        sb_layout.addLayout(self.toggle_container)
+        sb_layout.addWidget(self.btn_toggle)
 
-        sb_layout.addSpacing(22)    # add 22px vertical gap between menu and other sidebar buttons
+        sb_layout.addSpacing(10)
 
-        # Sidebar buttons with icons
-        def make_sidebar_buttons(text, icon_path):
-            btn = QPushButton(text)
+        # ---------- Sidebar Buttons Factory ----------
+        def make_sidebar_button(text, icon_path):
+            btn = QToolButton()
+            btn.setText(text)
             btn.setIcon(self._get_white_icon(icon_path))
-            btn.setIconSize(QSize(24,24))
-            btn.setMinimumHeight(40)
-            btn.setStyleSheet("text-align: left; padding-left: 10px;")
+            btn.setIconSize(QSize(22, 22))
+            btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setMinimumHeight(42)
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            btn.setObjectName("sidebarBtn")
             return btn
-        
-        self.btn_attendance = make_sidebar_buttons("  Mark Attendance", "assets/icons/attendance")
-        self.btn_logs = make_sidebar_buttons("  View Logs", "assets/icons/logs")
 
-        for btn in ( 
-            self.btn_attendance, 
-            self.btn_logs
-        ):
-            btn.setMinimumHeight(40)
-            btn.setStyleSheet("text-align: left; padding-left: 10px;")
-            sb_layout.addWidget(btn)
+        attendance_icon = os.path.join(base_path, "..", "assets", "icons", "attendance.png")
+        logs_icon = os.path.join(base_path, "..", "assets", "icons", "logs.png")
+
+        self.btn_attendance = make_sidebar_button("  Mark Attendance", attendance_icon)
+        self.btn_logs = make_sidebar_button("  View Logs", logs_icon)
+
+        sb_layout.addWidget(self.btn_attendance)
+        sb_layout.addWidget(self.btn_logs)
         sb_layout.addStretch()
 
+
         # Right: Combine topbar + central rounded content into a single visual unit
-        right_container = QVBoxLayout()
+        self.right_panel = QWidget()
+        right_container = QVBoxLayout(self.right_panel)
         right_container.setSpacing(10)
         right_container.setContentsMargins(0,0,0,0)
-
+        self.right_panel.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding
+        )
 
         # Topbar (styled, single entity visually connection tot sidebar)
         topbar = QFrame()
@@ -112,7 +131,16 @@ class DashboardUI(QWidget):
 
         # Make the central content a stacked widget so other windows (attendance/logs) can be inserted here
         self.content_stack = QStackedWidget()
-        self.content_stack.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        self.content_stack.setSizePolicy(
+            QSizePolicy.Policy.Expanding, 
+            QSizePolicy.Policy.Expanding
+        )
+        self.content_stack.setContentsMargins(0,0,0,0)
+        self.central_frame.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding
+        )
+
         # page 0 = dashboard central_frame (we'll add central_frame into the stack)
         dashboard_page = QWidget()
         dashboard_layout = QVBoxLayout(dashboard_page)
@@ -122,91 +150,46 @@ class DashboardUI(QWidget):
 
         right_container.addWidget(self.content_stack)
 
-        # -------------------------------
-        # Loader overlay that covers entire DashboardUI (not just content)
-        # -------------------------------
-        self._loader_overlay = QFrame(self.window())
-        self._loader_overlay.setVisible(False)
-        self._loader_overlay.setObjectName("loaderOverlay")
-        self._loader_overlay.setStyleSheet("""
-            #loaderOverlay {
-                background-color: rgba(255, 255, 255, 210);
-            }
-        """)
+        # ---------- Overlay Layer ----------
+        self.overlay_layer = QFrame(self)
+        self.overlay_layer.setStyleSheet("background: transparent;")
+        self.overlay_layer.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.overlay_layer.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        loader_layout = QVBoxLayout(self._loader_overlay)
-        loader_layout.setContentsMargins(24, 24, 24, 24)
-        loader_layout.setSpacing(16)
-        loader_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.overlay_layer.setGeometry(self.rect())
+        self.overlay_layer.show()
+        self.overlay_layer.raise_()
 
-        # Loader spinner (centered)
-        self._loader_spinner = QLabel()
-        spinner_path = "assets/icons/loader.gif"
-        try:
-            self._loader_movie = QMovie(spinner_path)
-            self._loader_spinner.setMovie(self._loader_movie)
-        except Exception:
-            self._loader_spinner.setText("Loading...")
-            self._loader_movie = None
-        self._loader_spinner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        overlay_layout = QVBoxLayout(self.overlay_layer)
+        overlay_layout.setContentsMargins(0,0,0,0)
+        overlay_layout.setSpacing(0)
 
-        # Message label (below spinner)
-        self._loader_message = QLabel("Working...")
-        self._loader_message.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._loader_message.setWordWrap(True)
-        self._loader_message.setStyleSheet("""
-            color: black;
-            font-size: 16px;
-            font-weight: 600;
-            padding: 10px 20px;
-        """)
-        self._loader_message.setMinimumWidth(380)
-        self._loader_message.setMaximumWidth(700)
+        self.provision_overlay = ProvisioningOverlay(self.overlay_layer)
+        self.login_overlay = LoginOverlay(self.overlay_layer)
 
-        self._loader_message_effect = QGraphicsOpacityEffect()
-        self._loader_message.setGraphicsEffect(self._loader_message_effect)
-        self._loader_message_effect.setOpacity(1.0)
+        overlay_layout.addWidget(self.provision_overlay)
+        overlay_layout.addWidget(self.login_overlay)
 
-        self._loader_message_queue = deque()
-        self._loader_message_timer = QTimer()
-        self._loader_message_timer.timeout.connect(self._show_next_loader_message)
-        self._loader_message_timer.setSingleShot(True)
-        self._current_loader_animating = False
+        self.provision_overlay.hide()
+        self.login_overlay.hide()
 
-        # Add to layout
-        loader_layout.addWidget(self._loader_spinner)
-        loader_layout.addWidget(self._loader_message)
+        # login submitted → bubble upward via signal
+        self.login_overlay.login_requested.connect(
+            lambda username, password: self.login_submitted.emit(username, password)
+        )
 
-        # Retry + Cancel controls (below message)
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
-
-        self._loader_retry_btn = QPushButton("Retry")
-        self._loader_retry_btn.setFixedHeight(34)
-        self._loader_retry_btn.setMinimumWidth(120)
-        self._loader_retry_btn.setStyleSheet("color: black;")
-        self._loader_retry_btn.clicked.connect(lambda: self._on_loader_retry())
-
-        self._loader_cancel_btn = QPushButton("Cancel")
-        self._loader_cancel_btn.setFixedHeight(34)
-        self._loader_cancel_btn.setMinimumWidth(120)
-        self._loader_cancel_btn.setStyleSheet("color: black;")
-        self._loader_cancel_btn.clicked.connect(lambda: self._on_loader_cancel())
-
-        btn_row.addStretch()
-        btn_row.addWidget(self._loader_retry_btn)
-        btn_row.addWidget(self._loader_cancel_btn)
-        btn_row.addStretch()
-
-        loader_layout.addLayout(btn_row)
-
-        # Initially hide controls — only show when waiting for credential
-        self._loader_retry_btn.setVisible(False)
-        self._loader_cancel_btn.setVisible(False)
+        # cancel login -> bubble upward
+        self.login_overlay.cancel_requested.connect(
+            lambda: self.login_cancel_requested.emit())
+        
+        # forgot password
+        self.login_overlay.forgot_password_requested.connect(
+            lambda: self.forgot_password_requested.emit()
+        )
 
         # Add sidebar and right_container to outer layout with proper stretch ratio
         outer.addWidget(self.sidebar_frame, 0)
-        outer.addLayout(right_container, 1)
+        outer.addWidget(self.right_panel, 1)
 
         # set the layout on this wiget so children show
         self.setLayout(outer)
@@ -236,28 +219,32 @@ class DashboardUI(QWidget):
             background-color: rgba(255,255,255,0.1);
         }
 
-        #sidebarFrame QPushButton {
-            background-color: transparent;
+        QToolButton#sidebarBtn {
+            background: transparent;
             color: #d1d5db;
-            border: none;
-            border-radius: 8px;
-            padding: 10px;
-            text-align: left;
+            border-radius: 10px;
+            padding: 6px 10px;
             font-weight: 500;
         }
 
-        #sidebarFrame QPushButton:hover {
-            background-color: rgba(255,255,255,0.1);
-            color: #ffffff;
+        QToolButton#sidebarBtn:hover {
+            background-color: rgba(255,255,255,0.12);
+            color: white;
         }
 
-        #sidebarFrame QPushButton:pressed {
+        QToolButton#sidebarBtn:pressed {
             background-color: rgba(255,255,255,0.2);
         }
 
-        #sidebarFrame QPushButton[active="true"] {
+        QToolButton#sidebarBtn[active="true"] {
             background-color: #2563eb;
-            color: #ffffff;
+            color: white;
+        }
+                           
+        QToolButton:focus, 
+        QPushButton:focus {
+            outline: 0;
+            border: none;
         }
 
         /* Topbar (Dark) */
@@ -336,76 +323,62 @@ class DashboardUI(QWidget):
     
     # ---------------- Sidebar animation ----------------
     def toggle_sidebar(self):
-        # toggle between 220 and 60 px; keep animation instance on self
         start = self.sidebar_frame.width()
-        end = 80 if self.sidebar_expanded else 220
 
-        self.sidebar_anim = QPropertyAnimation(self.sidebar_frame, b"maximumWidth", self)
-        self.sidebar_anim.setDuration(300)
-        self.sidebar_anim.setStartValue(start)
-        self.sidebar_anim.setEndValue(end)
-        self.sidebar_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
-
-        # also animate minimumWidth for smoother effect
-        self.sidebar_anim2 = QPropertyAnimation(self.sidebar_frame, b"minimumWidth", self)
-        self.sidebar_anim2.setDuration(300)
-        self.sidebar_anim2.setStartValue(start)
-        self.sidebar_anim2.setEndValue(end)
-        self.sidebar_anim2.setEasingCurve(QEasingCurve.Type.InOutCubic)
-
-        # start both animations
-        self.sidebar_anim.start()
-        self.sidebar_anim2.start()
-
-        # After animation finishes, update sidebar button labels and toggle button alignment
-        def after_animation():
-            self._update_sidebar_labels()
-            # Toggle button alignment: left-aligned when expanded, centered when collapsed
-            if self.sidebar_expanded:
-                self.toggle_container.setAlignment(self.btn_toggle, Qt.AlignmentFlag.AlignRight)
-            else:
-                self.toggle_container.setAlignment(self.btn_toggle, Qt.AlignmentFlag.AlignHCenter)
-
-        # update labels after animation
-        self.sidebar_anim2.finished.connect(after_animation)
-
-        # Flip the sidebar state
-        self.sidebar_expanded = not self.sidebar_expanded
-
-
-    def _update_sidebar_labels(self):
-        """Update sidebar button labels and icon alignment based on collapse state."""
-        # Sidebar buttons
-        sidebar_buttons = (
-            self.btn_attendance,
-            self.btn_logs
-        )
-
-        if not self.sidebar_expanded:
-            # Collapsed: show only icons, center them
-            for btn in sidebar_buttons:
-                btn.setText("")
-                btn.setStyleSheet("""
-                    QPushButton {
-                        qproperty-iconSize: 22px;
-                        text-align: center;
-                        padding: 0px;
-                        margin: 0px;
-                    }
-                """)
+        if self.sidebar_expanded:
+            end = self.sidebar_width_collapsed
         else:
-            # Expanded: restore text and left alignment
-            texts = ["  Mark Attendance", "  View Logs"]
-            for btn, text in zip(sidebar_buttons, texts):
-                btn.setText(text)
-                btn.setStyleSheet("""
-                    QPushButton {
-                        qproperty-iconSize: 22px;
-                        text-align: left;
-                        padding-left: 10px;
-                        margin: 0px;
-                    }
-                """)
+            end = self.sidebar_width_expanded
+
+        # animate max
+        anim_max = QPropertyAnimation(self.sidebar_frame, b"maximumWidth")
+        anim_max.setDuration(300)
+        anim_max.setStartValue(start)
+        anim_max.setEndValue(end)
+        anim_max.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        # animate min as well (smooth + stable)
+        anim_min = QPropertyAnimation(self.sidebar_frame, b"minimumWidth")
+        anim_min.setDuration(300)
+        anim_min.setStartValue(start)
+        anim_min.setEndValue(end)
+        anim_min.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        # run both
+        anim_max.start()
+        anim_min.start()
+
+        self.sidebar_anim = anim_max
+        self.sidebar_anim2 = anim_min
+
+        def after():
+            if self.sidebar_expanded:
+                # finished collapsing
+                for btn in (self.btn_attendance, self.btn_logs):
+                    btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+                    btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                    btn.setStyleSheet("""
+                        QToolButton {
+                            padding:0px; 
+                            margin: 0px;
+                            qproperty-iconSize: 24px;
+                        }
+                    """)
+            else:
+                # finished expanding
+                for btn in (self.btn_attendance, self.btn_logs):
+                    btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                    btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)                    
+                    btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                    btn.setStyleSheet("""
+                        QToolButton {
+                            padding-left: 10px;
+                            qproperty-iconSize: 24px;
+                        }
+                    """)
+            self.sidebar_expanded = not self.sidebar_expanded
+
+        anim_max.finished.connect(after)
 
 
     def highlight_active_button(self, active_button):
@@ -421,7 +394,12 @@ class DashboardUI(QWidget):
         """Load an icon and tint it white for dark backgrounds."""
         pixmap = QPixmap(path)
         if not pixmap.isNull():
-            pixmap = pixmap.scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            pixmap = pixmap.scaled(
+                size, 
+                size, 
+                Qt.AspectRatioMode.KeepAspectRatio, 
+                Qt.TransformationMode.SmoothTransformation
+            )
             tinted = QPixmap(pixmap.size())
             tinted.fill(Qt.GlobalColor.transparent)
             painter = QPainter(tinted)
@@ -431,194 +409,49 @@ class DashboardUI(QWidget):
             painter.end()
             return QIcon(tinted)
         return QIcon(path)
-
     
-    # def animate_page_transition(self, old_index, new_index, direction="left"):
-    #     """
-    #     Animate smooth slide transition between two pages in the content stack.
-    #     direction: 'left' (default) or 'right'
-    #     """
-    #     old_widget = self.content_stack.widget(old_index)
-    #     new_widget = self.content_stack.widget(new_index)
-
-    #     if not old_widget or not new_widget:
-    #         # fallback to normal change if invalid
-    #         self.content_stack.setCurrentIndex(new_index)
-    #         return
-        
-    #     stack_geometry = self.content_stack.geometry()
-    #     width = stack_geometry.width()
-    #     height = stack_geometry.height()
-
-    #     # Starting position for animation
-    #     if direction == "left":
-    #         new_start = QRect(width, 0, width, height)
-    #         new_end = QRect(0, 0, width, height)
-    #         old_end = QRect(-width, 0, width, height)
-    #     else:
-    #         new_start = QRect(-width, 0, width, height)
-    #         new_end = QRect(0, 0, width, height)
-    #         old_end = QRect(width, 0, width, height)
-
-    #     # Prepare new widget
-    #     new_widget.setGeometry(new_start)
-    #     new_widget.show()
-
-    #     # Animation for old and new pages
-    #     anim_old = QPropertyAnimation(old_widget, b"geometry")
-    #     anim_old.setDuration(400)
-    #     anim_old.setStartValue(stack_geometry)
-    #     anim_old.setEndValue(old_end)
-    #     anim_old.setEasingCurve(QEasingCurve.Type.InOutCubic)
-
-    #     anim_new = QPropertyAnimation(new_widget, b"geometry")
-    #     anim_new.setDuration(400)
-    #     anim_new.setStartValue(new_start)
-    #     anim_new.setEndValue(new_end)
-    #     anim_new.setEasingCurve(QEasingCurve.Type.InOutCubic)
-
-    #     # Group animations together
-    #     group = QParallelAnimationGroup()
-    #     group.addAnimation(anim_old)
-    #     group.addAnimation(anim_new)
-
-    #     def on_finished():
-    #         self.content_stack.setCurrentIndex(new_index)
-    #         new_widget.setGeometry(0, 0, width, height)
-    #         old_widget.setGeometry
-
-    #     group.finished.connect(on_finished)
-    #     group.start()
-    #     self._page_transition_anim = group
-
-
-    # ------- Loader overlay controls helper functions --------
-
-    def show_loader(self, initial_message: str = "Working..."):
-        # ensure overlay covers entire main window
-        w = self.window()
-        self._loader_overlay.setGeometry(0,0, w.width(), w.height())
-        if self._loader_movie:
-            try:
-                self._loader_movie.start()
-            except Exception:
-                raise
-
-        self._loader_message.setText(initial_message)
-        self._loader_message_queue.clear()
-        self._loader_overlay.raise_()
-        self._loader_overlay.setWindowOpacity(0)
-        self._loader_overlay.setVisible(True)
-
-        # Fade-in animation
-        self._fade_in = QPropertyAnimation(self._loader_overlay, b"windowOpacity")
-        self._fade_in.setDuration(300)
-        self._fade_in.setStartValue(0)
-        self._fade_in.setEndValue(1)
-        self._fade_in.setEasingCurve(QEasingCurve.Type.InOutCubic)
-        self._fade_in.start()
-
-
-    def update_loader(self, message: str):
-        self._loader_message_queue.append(message)
-        if not self._current_loader_animating:
-            self._show_next_loader_message()
-
-    
-    def hide_loader(self):
-        if self._loader_movie:
-            try:
-                self._loader_movie.stop()
-            except Exception:
-                raise
-
-        # Fade-out animation
-        self._fade_out = QPropertyAnimation(self._loader_overlay, b"windowOpacity")
-        self._fade_out.setDuration(300)
-        self._fade_out.setStartValue(1)
-        self._fade_out.setEndValue(0)
-        self._fade_out.setEasingCurve(QEasingCurve.Type.InOutCubic)
-        self._fade_out.finished.connect(lambda: self._loader_overlay.setVisible(False))
-        self._fade_out.start()
-
-
-    def _show_next_loader_message(self):
-        if not self._loader_message_queue:
-            self._current_loader_animating = False
-
-            # --- Smooth fade-out for the final loader overlay ---
-            fade_out_final = QPropertyAnimation(self._loader_overlay, b"windowOpacity")
-            fade_out_final.setDuration(400)
-            fade_out_final.setStartValue(1)
-            fade_out_final.setEndValue(0)
-            fade_out_final.setEasingCurve(QEasingCurve.Type.InOutCubic)
-            fade_out_final.finished.connect(lambda: self._loader_overlay.setVisible(False))
-            fade_out_final.start()
-
-            # Prevent garbage collection
-            self._fade_out_final = fade_out_final
-            return
-
-        self._current_loader_animating = True
-        next_message = self._loader_message_queue.popleft()
-
-        if not hasattr(self, "_loader_message_effect"):
-            # fallback to simple update if effect missing
-            self._loader_message.setText(next_message)
-            self._loader_message.repaint()
-        else:
-            # Step 1: Fade out current text
-            fade_out = QPropertyAnimation(self._loader_message_effect, b"opacity")
-            fade_out.setDuration(180)
-            fade_out.setStartValue(1)
-            fade_out.setEndValue(0)
-            fade_out.setEasingCurve(QEasingCurve.Type.InOutQuad)
-            fade_out.finished.connect(lambda: self._fade_in_message(next_message))
-            fade_out.start()
-
-            # Prevent garbage collection
-            self._fade_out_message = fade_out
-
-        # Slightly longer delay for the final message
-        delay = 900 if len(self._loader_message_queue) == 0 else 450
-        self._loader_message_timer.start(delay)
-
-
-    def _fade_in_message(self, text):
-        self._loader_message.setText(text)
-        fade_in = QPropertyAnimation(self._loader_message_effect, b"opacity")
-        fade_in.setDuration(200)
-        fade_in.setStartValue(0)
-        fade_in.setEndValue(1)
-        fade_in.start()
-        self._fade_in_message_anim = fade_in
-
-    # controls for retry/cancel
-    def show_waiting_controls(self, show: bool = True):
-        """Show/hide retry & cancel buttons on overlay."""
-        self._loader_retry_btn.setVisible(show)
-        self._loader_cancel_btn.setVisible(show)
-
-    
-    def _on_loader_retry(self):
-        if callable(self._loader_retry_callback):
-            self._loader_retry_callback()
-
-    
-    def _on_loader_cancel(self):
-        if callable(self._loader_cancel_callback):
-            self._loader_cancel_callback()
-
-
-    def set_loader_retry_callback(self, callback):
-        self._loader_retry_callback = callback
-
-
-    def set_loader_cancel_callback(self, callback):
-        self._loader_cancel_callback = callback
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        if self._loader_overlay.isVisible():
-            w = self.window()
-            self._loader_overlay.setGeometry(0, 0, w.width(), w.height())
+
+        # Keep overlay layer full size
+        if self.overlay_layer:
+            self.overlay_layer.setGeometry(self.rect())
+
+    
+    def show_waiting_controls(self, show=True):
+        self.provision_overlay.btn_retry.setVisible(show)
+        self.provision_overlay.btn_cancel.setVisible(show)
+
+
+    def show_loader(self, message="Working..."):
+        self.force_sidebar_visible()
+        self.provision_overlay.set_message(message)
+        self.overlay_layer.show()
+        self.overlay_layer.raise_()
+        self.provision_overlay.show_overlay()
+
+    def update_loader(self, msg):
+        self.provision_overlay.set_message(msg)
+
+    def hide_loader(self):
+        self.provision_overlay.hide_overlay()
+
+    def show_overlay_feedback(self, msg, msg_type="info"):
+        VisionToast(self, msg, msg_type)
+
+    def show_login_overlay(self):
+        self.force_sidebar_visible()
+        self.login_overlay.show()
+        self.overlay_layer.show()
+        self.overlay_layer.raise_()
+        self.login_overlay.show_overlay()
+
+    def _hide_login_overlay(self):
+        self.login_overlay.hide_overlay()
+        self.overlay_layer.hide()
+        self.force_sidebar_visible()
+
+    def force_sidebar_visible(self):
+        self.btn_attendance.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_logs.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
